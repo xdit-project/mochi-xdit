@@ -114,8 +114,7 @@ Many modern diffusion models use multiple pretrained language models to represen
 |10B   | 48   | 24   | 3072   | 1536   | 44520   |   256   |
 
 ## Hardware Requirements
-
-The model requires at least 4 H100 GPUs to run. We welcome contributions from the community to reduce this requirement.
+The repository supports both multi-GPU operation (splitting the model across multiple graphics cards) and single-GPU operation, though it requires approximately 60GB VRAM when running on a single GPU. While ComfyUI can optimize Mochi to run on less than 20GB VRAM, this implementation prioritizes flexibility over memory efficiency. When using this repository, we recommend using at least 1 H100 GPU.
 
 ## Safety
 Genmo video models are general text-to-video diffusion models that inherently reflect the biases and preconceptions found in their training data. While steps have been taken to limit NSFW content, organizations should implement additional safety protocols and careful consideration before deploying these model weights in any commercial services or products.
