@@ -22,12 +22,14 @@ pipeline = None
 model_dir_path = None
 num_gpus = torch.cuda.device_count()
 cpu_offload = False
+dtype = None
 
 
-def configure_model(model_dir_path_, cpu_offload_):
-    global model_dir_path, cpu_offload
+def configure_model(model_dir_path_, cpu_offload_, dtype_):
+    global model_dir_path, cpu_offload, dtype
     model_dir_path = model_dir_path_
     cpu_offload = cpu_offload_
+    dtype = dtype_
 
 
 def load_model():
@@ -37,13 +39,17 @@ def load_model():
         print(f"Launching with {num_gpus} GPUs. If you want to force single GPU mode use CUDA_VISIBLE_DEVICES=0.")
         klass = MochiSingleGPUPipeline if num_gpus == 1 else MochiMultiGPUPipeline
         kwargs = dict(
-            text_encoder_factory=T5ModelFactory(),
+            text_encoder_factory=T5ModelFactory(
+                dtype=dtype,
+            ),
             dit_factory=DitModelFactory(
                 model_path=f"{MOCHI_DIR}/dit.safetensors", 
-                model_dtype="bf16"
+                model_dtype="bf16",
+                dtype=dtype,
             ),
             decoder_factory=DecoderModelFactory(
                 model_path=f"{MOCHI_DIR}/decoder.safetensors",
+                dtype=dtype,
             ),
         )
         if num_gpus > 1:
@@ -127,7 +133,7 @@ inviting atmosphere.
 @click.option("--negative_prompt", default="", help="Negative prompt for video generation.")
 @click.option("--width", default=848, type=int, help="Width of the video.")
 @click.option("--height", default=480, type=int, help="Height of the video.")
-@click.option("--num_frames", default=163, type=int, help="Number of frames.")
+@click.option("--num_frames", default=49, type=int, help="Number of frames.")
 @click.option("--seed", default=1710977262, type=int, help="Random seed.")
 @click.option("--cfg_scale", default=4.5, type=float, help="CFG Scale.")
 @click.option("--num_steps", default=64, type=int, help="Number of inference steps.")
@@ -136,7 +142,7 @@ inviting atmosphere.
 def generate_cli(
     prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload
 ):
-    configure_model(model_dir, cpu_offload)
+    configure_model(model_dir, cpu_offload, torch.bfloat16)
     output = generate_video(
         prompt,
         negative_prompt,

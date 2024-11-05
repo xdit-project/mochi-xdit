@@ -50,8 +50,8 @@ def create_position_matrix(
         # We use a large target area so the model is more sensitive
         # to changes in the learned pos_frequencies matrix.
         scale = math.sqrt(target_area / (pW * pH))
-        w = centers(-pW * scale / 2, pW * scale / 2, pW)
-        h = centers(-pH * scale / 2, pH * scale / 2, pH)
+        w = centers(-pW * scale / 2, pW * scale / 2, pW, dtype=dtype)
+        h = centers(-pH * scale / 2, pH * scale / 2, pH, dtype=dtype)
 
         # Use meshgrid to create 3D grids
         grid_t, grid_h, grid_w = torch.meshgrid(t, h, w, indexing="ij")

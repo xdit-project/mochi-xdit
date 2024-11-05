@@ -535,7 +535,7 @@ class AsymmDiTJoint(nn.Module):
             pH, pW = H // self.patch_size, W // self.patch_size
             N = T * pH * pW
             assert x.size(1) == N
-            pos = create_position_matrix(T, pH=pH, pW=pW, device=x.device, dtype=torch.float32)  # (N, 3)
+            pos = create_position_matrix(T, pH=pH, pW=pW, device=x.device, dtype=x.dtype)  # (N, 3)
             rope_cos, rope_sin = compute_mixed_rotation(
                 freqs=self.pos_frequencies, pos=pos
             )  # Each are (N, num_heads, dim // 2)

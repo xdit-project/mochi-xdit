@@ -1012,5 +1012,6 @@ def decode_latents(decoder, z):
     z = z.tensor_split(cp_size, dim=2)[cp_rank]  # split along temporal dim
     with torch.autocast("cuda", dtype=torch.bfloat16):
         samples = decoder(z)
-    samples = cp_conv.gather_all_frames(samples)
+    if cp_size is None or cp_size > 1:
+        samples = cp_conv.gather_all_frames(samples)
     return normalize_decoded_frames(samples)

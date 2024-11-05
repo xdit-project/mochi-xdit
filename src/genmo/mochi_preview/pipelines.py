@@ -60,7 +60,7 @@ def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
     return sigma_schedule
 
 
-T5_MODEL = "google/t5-v1_1-xxl"
+T5_MODEL = "/cfs/dit/t5-v1_1-xxl"
 MAX_T5_TOKEN_LENGTH = 256
 
 
@@ -85,7 +85,8 @@ def setup_fsdp_sync(model, device_id, *, param_dtype, auto_wrap_policy) -> FSDP:
 
 
 class ModelFactory(ABC):
-    def __init__(self, **kwargs):
+    def __init__(self, dtype = torch.bfloat16, **kwargs):
+        self.dtype = dtype
         self.kwargs = kwargs
 
     @abstractmethod
@@ -95,8 +96,11 @@ class ModelFactory(ABC):
 
 
 class T5ModelFactory(ModelFactory):
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self, 
+        dtype
+    ):
+        super().__init__(dtype)
 
     def get_model(self, *, local_rank, device_id, world_size):
         super().get_model(local_rank=local_rank, device_id=device_id, world_size=world_size)
@@ -105,7 +109,7 @@ class T5ModelFactory(ModelFactory):
             model = setup_fsdp_sync(
                 model,
                 device_id=device_id,
-                param_dtype=torch.float32,
+                param_dtype=self.dtype,
                 auto_wrap_policy=partial(
                     transformer_auto_wrap_policy,
                     transformer_layer_cls={
@@ -114,19 +118,19 @@ class T5ModelFactory(ModelFactory):
                 ),
             )
         elif isinstance(device_id, int):
-            model = model.to(torch.device(f"cuda:{device_id}"))  # type: ignore
+            model = model.to(torch.device(f"cuda:{device_id}"), dtype=self.dtype)  # type: ignore
         return model.eval()
 
 
 class DitModelFactory(ModelFactory):
-    def __init__(self, *, model_path: str, model_dtype: str, attention_mode: Optional[str] = None):
+    def __init__(self, *, dtype, model_path: str, model_dtype: str, attention_mode: Optional[str] = None):
         if attention_mode is None:
             from genmo.lib.attn_imports import flash_varlen_qkvpacked_attn  # type: ignore
 
             attention_mode = "sdpa" if flash_varlen_qkvpacked_attn is None else "flash"
         print(f"Attention mode: {attention_mode}")
         super().__init__(
-            model_path=model_path, model_dtype=model_dtype, attention_mode=attention_mode
+            dtype=dtype, model_path=model_path, model_dtype=model_dtype, attention_mode=attention_mode
         )
 
     def get_model(self, *, local_rank, device_id, world_size):
@@ -173,13 +177,13 @@ class DitModelFactory(ModelFactory):
                 ),
             )
         elif isinstance(device_id, int):
-            model = model.to(torch.device(f"cuda:{device_id}"))
+            model = model.to(torch.device(f"cuda:{device_id}"), dtype=self.dtype)
         return model.eval()
 
 
 class DecoderModelFactory(ModelFactory):
-    def __init__(self, *, model_path: str):
-        super().__init__(model_path=model_path)
+    def __init__(self, *, dtype, model_path: str):
+        super().__init__(dtype=dtype, model_path=model_path)
 
     def get_model(self, *, local_rank, device_id, world_size):
         # TODO(ved): Set flag for torch.compile
@@ -203,7 +207,7 @@ class DecoderModelFactory(ModelFactory):
         state_dict = load_file(self.kwargs["model_path"])
         decoder.load_state_dict(state_dict, strict=True)
         device = torch.device(f"cuda:{device_id}") if isinstance(device_id, int) else "cpu"
-        decoder.eval().to(device)
+        decoder.eval().to(device, dtype=self.dtype)
         return decoder
 
 
@@ -247,7 +251,7 @@ def get_conditioning_for_prompts(tokenizer, encoder, device, prompts: List[str])
     # Sometimes returns a tensor, othertimes a tuple, not sure why
     # See: https://huggingface.co/genmo/mochi-1-preview/discussions/3
     assert tuple(y_feat[-1].shape) == (B, MAX_T5_TOKEN_LENGTH, 4096)
-    assert y_feat[-1].dtype == torch.float32
+    #assert y_feat[-1].dtype == torch.float32
 
     return dict(y_mask=y_mask, y_feat=y_feat)
 
@@ -293,6 +297,7 @@ def assert_eq(x, y, msg=None):
 
 
 def sample_model(device, dit, conditioning, **args):
+    dtype = conditioning["cond"]["y_feat"][0].dtype
     random.seed(args["seed"])
     np.random.seed(args["seed"])
     torch.manual_seed(args["seed"])
@@ -323,7 +328,7 @@ def sample_model(device, dit, conditioning, **args):
     z = torch.randn(
         (B, IN_CHANNELS, latent_t, latent_h, latent_w),
         device=device,
-        dtype=torch.float32,
+        dtype=dtype,
     )
 
     num_latents = latent_t * latent_h * latent_w
@@ -361,10 +366,10 @@ def sample_model(device, dit, conditioning, **args):
         # `pred` estimates `z_0 - eps`.
         pred = model_fn(
             z=z,
-            sigma=torch.full([B] if cond_text else [B * 2], sigma, device=z.device),
+            sigma=torch.full([B] if cond_text else [B * 2], sigma, device=z.device, dtype=z.dtype),
             cfg_scale=cfg_schedule[i],
         )
-        assert pred.dtype == torch.float32
+        #assert pred.dtype == torch.float32
         z = z + dsigma * pred
 
     z = z[:B] if cond_batched else z
@@ -379,11 +384,11 @@ def move_to_device(model: nn.Module, target_device):
     else:
         print(f"moving model from {og_device} -> {target_device}")
 
-    model.to(target_device)
+    model = model.to(target_device)
     yield
     if og_device != target_device:
         print(f"moving model from {target_device} -> {og_device}")
-    model.to(og_device)
+    model = model.to(og_device)
 
 
 def t5_tokenizer():
@@ -448,7 +453,7 @@ class MochiSingleGPUPipeline:
                     else decode_latents(self.decoder, latents)
                 )
             print_max_memory()
-            return frames.cpu().numpy()
+            return frames.cpu().float().numpy()
 
 
 ### ALL CODE BELOW HERE IS FOR MULTI-GPU MODE ###
