@@ -381,9 +381,23 @@ class AsymmetricAttention(nn.Module):
         **rope_rotation,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.use_xdit:
-            return self._forward_xdit(x, y, scale_x, scale_y, packed_indices, **rope_rotation)
+            return self._forward_xdit(
+                x=x,
+                y=y,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                packed_indices=packed_indices,
+                **rope_rotation
+            )
         else:
-            return self._forward_original(x, y, scale_x, scale_y, packed_indices, **rope_rotation)
+            return self._forward_original(
+                x=x,
+                y=y,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                packed_indices=packed_indices,
+                **rope_rotation
+            )
         
 @torch.compile(disable=not COMPILE_MMDIT_BLOCK)
 class AsymmetricJointBlock(nn.Module):
@@ -558,6 +572,7 @@ class AsymmDiTJoint(nn.Module):
         use_extended_posenc: bool = False,
         rope_theta: float = 10000.0,
         device: Optional[torch.device] = None,
+        use_xdit: bool = True,
         **block_kwargs,
     ):
         super().__init__()
@@ -618,6 +633,7 @@ class AsymmDiTJoint(nn.Module):
         self.blocks = nn.ModuleList(blocks)
 
         self.final_layer = FinalLayer(hidden_size_x, patch_size, self.out_channels, device=device)
+        self.use_xdit = use_xdit
 
     def embed_x(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -716,8 +732,12 @@ class AsymmDiTJoint(nn.Module):
 
             assert self.num_heads % cp_size == 0
             local_heads = self.num_heads // cp_size
-            rope_cos = rope_cos.narrow(1, cp_rank * local_heads, local_heads)
-            rope_sin = rope_sin.narrow(1, cp_rank * local_heads, local_heads)
+            if not self.use_xdit:
+                rope_cos = rope_cos.narrow(1, cp_rank * local_heads, local_heads)
+                rope_sin = rope_sin.narrow(1, cp_rank * local_heads, local_heads)
+            else:
+                rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
+                rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
 
         for i, block in enumerate(self.blocks):
             x, y_feat = block(
