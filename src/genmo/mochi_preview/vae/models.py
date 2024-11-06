@@ -908,13 +908,14 @@ def decode_latents_tiled_full(
     decoder,
     z,
     *,
-    tile_sample_min_height: int = 240,
-    tile_sample_min_width: int = 424,
-    tile_overlap_factor_height: float = 0.1666,
-    tile_overlap_factor_width: float = 0.2,
-    auto_tile_size: bool = True,
+    tile_sample_min_height: int = 200,
+    tile_sample_min_width: int = 200,
+    tile_latent_overlap_height: int = 8,
+    tile_latent_overlap_width: int = 8,
+    auto_tile_size: bool = False,
     frame_batch_size: int = 6,
 ):
+    spatial_vae_scale = 8
     B, C, T, H, W = z.shape
     assert frame_batch_size <= T, f"frame_batch_size must be <= T, got {frame_batch_size} > {T}"
 
@@ -940,10 +941,10 @@ def decode_latents_tiled_full(
             )
         return b
 
-    overlap_height = int(tile_latent_min_height * (1 - tile_overlap_factor_height))
-    overlap_width = int(tile_latent_min_width * (1 - tile_overlap_factor_width))
-    blend_extent_height = int(tile_sample_min_height * tile_overlap_factor_height)
-    blend_extent_width = int(tile_sample_min_width * tile_overlap_factor_width)
+    overlap_height = int(tile_latent_min_height - tile_latent_overlap_height)
+    overlap_width = int(tile_latent_min_width - tile_latent_overlap_width)
+    blend_extent_height = spatial_vae_scale * tile_latent_overlap_height
+    blend_extent_width = spatial_vae_scale * tile_latent_overlap_width
     row_limit_height = tile_sample_min_height - blend_extent_height
     row_limit_width = tile_sample_min_width - blend_extent_width
 
