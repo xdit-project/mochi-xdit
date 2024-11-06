@@ -230,6 +230,9 @@ class AsymmetricAttention(nn.Module):
         # from xfuser.core.long_ctx_attention.ring import xdit_ring_flash_attn_func
         B, L, _ = y.shape
         _, M, _ = x.shape
+        device = x.device
+        dtype = x.dtype
+        
 
         rope_cos=rope_rotation.get("rope_cos")
         rope_sin=rope_rotation.get("rope_sin")
@@ -259,49 +262,68 @@ class AsymmetricAttention(nn.Module):
         q_y = self.q_norm_y(q_y)
         k_y = self.k_norm_y(k_y)
 
-        # 3. concate image and text features
-        q = torch.cat([q_x, q_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
-        k = torch.cat([k_x, k_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
-        v = torch.cat([v_x, v_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        # 4. use yunchang attention
+        from xfuser.core.long_ctx_attention.ring.ring_flash_attn import xdit_ring_flash_attn_func
+        from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
-        # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
+        attn_layer = xFuserLongContextAttention(
+            scatter_idx=2,
+            gather_idx=1,
+            ring_impl_type="basic",
+            use_kv_cache=False,
+        ).to(device=q_x.device, dtype=q_x.dtype)
+
+        xy = attn_layer(
+            attn=None,
+            query=q_x,
+            key=k_x,    
+            value=v_x,
+            dropout_p=0.0,
+            window_size=(-1, -1),
+            joint_tensor_query=q_y,
+            joint_tensor_key=k_y,
+            joint_tensor_value=v_y,
+            joint_strategy="rear",
+        )
+
+
+        # 3. concate image and text features
+        # q = torch.cat([q_x, q_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        # k = torch.cat([k_x, k_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        # v = torch.cat([v_x, v_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+
+        # # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
         indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
         # indices (B, total, num_heads, head_dim)
         indices = indices.unflatten(-1, (self.num_heads, self.head_dim)) 
-        q = torch.gather(q, 1, indices)
-        k = torch.gather(k, 1, indices)
-        v = torch.gather(v, 1, indices)
+        # q = torch.gather(q, 1, indices)
+        # k = torch.gather(k, 1, indices)
+        # v = torch.gather(v, 1, indices)
 
-# yunchang starts
-        # from xfuser.core.long_ctx_attention.ring.ring_flash_attn import xdit_ring_flash_attn_func
-        # xy = xdit_ring_flash_attn_func(
-        #     q=q_x,
-        #     k=k_x,
-        #     v=v_x,
+        # 4. use sdpa_attn
+        # q = q.transpose(1, 2)
+        # k = k.transpose(1, 2)
+        # v = v.transpose(1, 2)
+        # with torch.autocast("cuda", enabled=False):
+        #     with sdpa_attn_ctx():
+        #         out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+        #         # out = rearrange(out, "b h s d -> s (b h d)")
+        # xy = out.transpose(1, 2)
+        
+        # 4. use flash_attn
+        # from flash_attn import flash_attn_func
+        # xy = flash_attn_func(
+        #     q,
+        #     k,
+        #     v,
         #     dropout_p=0.0,
-        #     causal=False,
         #     window_size=(-1, -1),
-        #     joint_tensor_key=q_y,
-        #     joint_tensor_key=k_y,
-        #     joint_tensor_value=v_y,
-        #     joint_strategy="rear"
         # )
 
-        # 4. flash_attn layout attention
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
-        with torch.autocast("cuda", enabled=False):
-            with sdpa_attn_ctx():
-                out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
-                # out = rearrange(out, "b h s d -> s (b h d)")
-        xy = out.transpose(1, 2)
-        
-
-# yunchan ends
+        # yunchan ends
 
         # 5. gather xy with indices
-        tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=xy.device, dtype=xy.dtype)
+        tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=device, dtype=dtype)
         tmp.scatter_(1, indices, xy)
         xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
         x, y =  torch.tensor_split(xy, (M,), dim=1)

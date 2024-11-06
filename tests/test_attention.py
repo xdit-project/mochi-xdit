@@ -2,13 +2,50 @@ import torch
 import pytest
 from genmo.mochi_preview.dit.joint_model.asymm_models_joint import AsymmetricAttention
 from genmo.mochi_preview.dit.joint_model.rope_mixed import compute_mixed_rotation, create_position_matrix
+import os
+from xfuser.core.distributed import (
+    init_distributed_environment,
+    initialize_model_parallel,
+)
+from xfuser.core.long_ctx_attention.ring.ring_flash_attn import (
+    xdit_ring_flash_attn_func,
+)
+
+def init_dist(backend="nccl"):
+    local_rank = int(os.environ["LOCAL_RANK"])
+    rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    print(
+        f"Initializing distributed environment with rank {rank}, world size {world_size}, local rank {local_rank}"
+    )
+
+    torch.cuda.set_device(local_rank)
+    init_distributed_environment(rank=rank, world_size=world_size)
+    # dist.init_process_group(backend=backend)
+       # construct a hybrid sequence parallel config (ulysses=2, ring = world_size // 2)
+
+    if world_size > 1:
+        ring_degree = world_size // 2
+        ulysses_degree = 2
+    else:
+        ring_degree = 1
+        ulysses_degree = 1
+
+    initialize_model_parallel(
+        sequence_parallel_degree=world_size,
+        ring_degree=ring_degree,
+        ulysses_degree=ulysses_degree,
+    )
+    return rank, world_size
 
 def test_forward_xdit_matches_forward():
     # Initialize model parameters
+    rank, world_size = init_dist()
     dim_x = 3072
     dim_y = 1536
     num_heads = 24
-    device = torch.device("cuda")
+    device = torch.device(f"cuda:{rank}")
     dtype = torch.bfloat16
     
     batch_size = 1
