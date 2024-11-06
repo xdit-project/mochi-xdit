@@ -216,6 +216,85 @@ class AsymmetricAttention(nn.Module):
         y = self.proj_y(y)  # (B, L, dim_y)
         return x, y
 
+    @torch.no_grad()
+    def forward_xdit(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        *,
+        scale_x: torch.Tensor,  # (B, dim_x), modulation for pre-RMSNorm.
+        scale_y: torch.Tensor,  # (B, dim_y), modulation for pre-RMSNorm.
+        packed_indices: Dict[str, torch.Tensor] = None,
+        **rope_rotation,
+    ):
+        # from xfuser.core.long_ctx_attention.ring import xdit_ring_flash_attn_func
+        B, L, _ = y.shape
+        _, M, _ = x.shape
+
+        rope_cos=rope_rotation.get("rope_cos")
+        rope_sin=rope_rotation.get("rope_sin")
+        valid_token_indices=packed_indices["valid_token_indices_kv"]
+        
+        # Pre-norm for visual features
+        x = modulated_rmsnorm(x, scale_x)  # (B, M, dim_x) where M = N / cp_group_size
+
+        # Process visual features
+        qkv_x = self.qkv_x(x)  # (B, M, 3 * dim_x)
+        assert qkv_x.dtype == torch.bfloat16
+
+        # qkv_x = cp.all_to_all_collect_tokens(qkv_x, self.num_heads)  # (3, B, N, local_h, head_dim)
+        qkv_x = qkv_x.view(B, M, 3, self.num_heads, self.head_dim).transpose(0, 2).contiguous().transpose(1, 2).contiguous()
+        # (B, M, 3, num_heads, head_dim) -> (3, M, B, num_heads, head_dim) -> (3, B, M, num_heads, head_dim)
+
+        # Process text features
+        y = modulated_rmsnorm(y, scale_y)  # (B, L, dim_y)
+        qkv_y = self.qkv_y(y)  # (B, L, 3 * dim)
+        qkv_y = qkv_y.view(qkv_y.size(0), qkv_y.size(1), 3, self.num_heads, self.head_dim)
+        q_y, k_y, v_y = qkv_y.unbind(2)
+
+        q_y = self.q_norm_y(q_y)
+        k_y = self.k_norm_y(k_y)
+
+        # Split qkv_x into q, k, v
+        q_x, k_x, v_x = qkv_x.unbind(0)  # (B, N, local_h, head_dim)
+        q_x = self.q_norm_x(q_x)
+
+        q_x = apply_rotary_emb_qk_real(q_x, rope_cos, rope_sin)
+
+        k_x = self.k_norm_x(k_x)
+        k_x = apply_rotary_emb_qk_real(k_x, rope_cos, rope_sin)
+
+        # Unite streams
+        qkv = unify_streams(
+            q_x,
+            k_x,
+            v_x,
+            q_y,
+            k_y,
+            v_y,
+            valid_token_indices,
+        )
+
+        # out = self.sdpa_attention(qkv)
+        q, k, v = rearrange(qkv, "(b s) t h d -> t b h s d", b=1)
+        
+        with torch.autocast("cuda", enabled=False):
+            with sdpa_attn_ctx():
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+                out = rearrange(out, "b h s d -> s (b h d)")
+        
+        x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, qkv.dtype)
+        assert x.size() == (B, M, self.head_dim * self.num_heads)
+        assert y.size() == (B, L, self.head_dim * self.num_heads)
+
+        x = x.view(B, M, self.num_heads * self.head_dim)
+        # x = cp.all_to_all_collect_heads(x)  # (B, M, dim_x = num_heads * head_dim)
+        x = self.proj_x(x)  # (B, M, dim_x)
+
+        y = self.proj_y(y)  # (B, L, dim_y)
+
+        return x, y
+
     def forward(
         self,
         x: torch.Tensor,  # (B, N, dim_x)
@@ -253,6 +332,22 @@ class AsymmetricAttention(nn.Module):
             valid_token_indices=packed_indices["valid_token_indices_kv"],
         )  # (total <= B * (N + L), 3, local_heads, head_dim)
 
+        # valid_token_indices may change with each forward pass 3189 vs 3180, therefore qkv seqlen is changing
+        rope_cos=rope_rotation.get("rope_cos")
+        rope_sin=rope_rotation.get("rope_sin")
+        valid_token_indices=packed_indices["valid_token_indices_kv"]
+
+        # (MultiGPUContext pid=940105) rope_cos torch.Size([3180, 12, 64])                                                                  
+        # (MultiGPUContext pid=940105) rope_sin torch.Size([3180, 12, 64])                                                                  
+        # (MultiGPUContext pid=940105) valid_token_indices torch.Size([3189])    
+        print(f"rope_cos {rope_cos.shape}")
+        print(f"rope_sin {rope_sin.shape}")
+        print(f"valid_token_indices {valid_token_indices.shape}")
+
+        # (MultiGPUContext pid=940105) qkv torch.Size([3189, 3, 12, 128])  
+        print(f"qkv {qkv.shape}")
+        # valid_token_indices = packed_indices["valid_token_indices_kv"]
+        # print(f"valid_token_indices {valid_token_indices}")
         x, y = self.run_attention(
             qkv,
             B=B,
@@ -262,6 +357,18 @@ class AsymmetricAttention(nn.Module):
             max_seqlen_in_batch=packed_indices["max_seqlen_in_batch_kv"],
             valid_token_indices=packed_indices["valid_token_indices_kv"],
         )
+
+        # 1 GPU
+        # qkv torch.Size([1590, 3, 24, 128])
+        # x after run_attention torch.Size([1, 1590, 3072])
+        # y after run_attention torch.Size([1, 256, 1536])
+
+        # 2 GPU
+        # qkv torch.Size([1599, 3, 12, 128])                                             
+        # x after run_attention torch.Size([1, 795, 3072])                               
+        # y after run_attention torch.Size([1, 256, 1536]) 
+        print(f"x after run_attention {x.shape}")
+        print(f"y after run_attention {y.shape}")
         return x, y
 
 

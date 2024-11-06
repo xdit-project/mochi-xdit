@@ -40,6 +40,9 @@ def create_position_matrix(
     Returns:
         pos: [T * pH * pW, 3] - position matrix
     """
+    # print all args
+    print(f"T: {T}, pH: {pH}, pW: {pW}, device: {device}, dtype: {dtype}, target_area: {target_area}")
+
     with torch.no_grad():
         # Create 1D tensors for each dimension
         t = torch.arange(T, dtype=dtype)
