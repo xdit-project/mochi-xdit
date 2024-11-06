@@ -101,11 +101,8 @@ def test_forward_xdit_matches_forward():
         pos=pos[:N]  # Only use positions up to sequence length
     )  # Each are (N, num_heads, dim // 2)
 
-    # Create packed indices
-
-
-
-
+    valid_y_seq = 9
+    assert valid_y_seq <= y.size(1), f"valid_y_seq {valid_y_seq} <= y.size(1) {y.size(1)}"
 
     # Run both forward passes
     with torch.no_grad():
@@ -118,7 +115,7 @@ def test_forward_xdit_matches_forward():
         torch.distributed.broadcast(rope_cos, src=0)
         torch.distributed.broadcast(rope_sin, src=0)
 
-        total_len = seq_len_x + y.size(1)
+        total_len = seq_len_x + valid_y_seq
         valid_token_indices = torch.arange(total_len, device=device)
         cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
         packed_indices = {
@@ -134,7 +131,7 @@ def test_forward_xdit_matches_forward():
         local_heads = num_heads // cp_size
         rope_cos_local = rope_cos.narrow(1, cp_rank * local_heads, local_heads)
         rope_sin_local = rope_sin.narrow(1, cp_rank * local_heads, local_heads)
-        out_forward = model.forward(
+        out_forward = model._forward_original(
             x=x,
             y=y,
             scale_x=scale_x,
@@ -144,8 +141,8 @@ def test_forward_xdit_matches_forward():
             rope_sin=rope_sin_local,
         )
 
-        total_len = x.size(1) + y.size(1)
-        valid_token_indices = torch.arange(seq_len_y, device=device)
+        total_len = x.size(1) + valid_y_seq
+        valid_token_indices = torch.arange(valid_y_seq, device=device)
         cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
         packed_indices = {
             "valid_token_indices_kv": valid_token_indices, #? why its shape is not [total_len]
@@ -156,7 +153,7 @@ def test_forward_xdit_matches_forward():
         # NOTE() the input to rope is replicated
         rope_cos_local = rope_cos.chunk(world_size, dim=0)[rank]
         rope_sin_local = rope_sin.chunk(world_size, dim=0)[rank]
-        out_xdit = model.forward_xdit(
+        out_xdit = model._forward_xdit(
             x=x,
             y=y,
             scale_x=scale_x,
