@@ -235,18 +235,22 @@ class AsymmetricAttention(nn.Module):
         rope_sin=rope_rotation.get("rope_sin")
         valid_token_indices=packed_indices["valid_token_indices_kv"]
         
-        # Pre-norm for visual features
+        # 1. Process image features
         x = modulated_rmsnorm(x, scale_x)  # (B, M, dim_x) where M = N / cp_group_size
-
-        # Process visual features
         qkv_x = self.qkv_x(x)  # (B, M, 3 * dim_x)
         assert qkv_x.dtype == torch.bfloat16
-
         # qkv_x = cp.all_to_all_collect_tokens(qkv_x, self.num_heads)  # (3, B, N, local_h, head_dim)
         qkv_x = qkv_x.view(B, M, 3, self.num_heads, self.head_dim).transpose(0, 2).contiguous().transpose(1, 2).contiguous()
         # (B, M, 3, num_heads, head_dim) -> (3, M, B, num_heads, head_dim) -> (3, B, M, num_heads, head_dim)
 
-        # Process text features
+        # Split qkv_x into q, k, v
+        q_x, k_x, v_x = qkv_x.unbind(0)  # (B, N, local_h, head_dim)
+        q_x = self.q_norm_x(q_x)
+        q_x = apply_rotary_emb_qk_real(q_x, rope_cos, rope_sin)
+        k_x = self.k_norm_x(k_x)
+        k_x = apply_rotary_emb_qk_real(k_x, rope_cos, rope_sin)
+
+        # 2. Process text features
         y = modulated_rmsnorm(y, scale_y)  # (B, L, dim_y)
         qkv_y = self.qkv_y(y)  # (B, L, 3 * dim)
         qkv_y = qkv_y.view(qkv_y.size(0), qkv_y.size(1), 3, self.num_heads, self.head_dim)
@@ -255,29 +259,32 @@ class AsymmetricAttention(nn.Module):
         q_y = self.q_norm_y(q_y)
         k_y = self.k_norm_y(k_y)
 
-        # Split qkv_x into q, k, v
-        q_x, k_x, v_x = qkv_x.unbind(0)  # (B, N, local_h, head_dim)
-        q_x = self.q_norm_x(q_x)
 
-        q_x = apply_rotary_emb_qk_real(q_x, rope_cos, rope_sin)
+        # 3. concate image and text features
+        D = self.num_heads * self.head_dim
 
-        k_x = self.k_norm_x(k_x)
-        k_x = apply_rotary_emb_qk_real(k_x, rope_cos, rope_sin)
+        q = torch.cat([q_x, q_y], dim=1)
+        k = torch.cat([k_x, k_y], dim=1)
+        v = torch.cat([v_x, v_y], dim=1)
+        qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
 
-        # Unite streams
-        qkv = unify_streams(
-            q_x,
-            k_x,
-            v_x,
-            q_y,
-            k_y,
-            v_y,
-            valid_token_indices,
-        )
+        indices = valid_token_indices[:, None, None].expand(-1, 3, D)
+        qkv = torch.gather(qkv, 0, indices)  # (total, 3, num_heads * head_dim)
+        qkv = qkv.unflatten(2, (self.num_heads, self.head_dim))
+    
+        # qkv = unify_streams(
+        #     q_x,
+        #     k_x,
+        #     v_x,
+        #     q_y,
+        #     k_y,
+        #     v_y,
+        #     valid_token_indices,
+        # )
 
-        # out = self.sdpa_attention(qkv)
+        # 4. attention
         q, k, v = rearrange(qkv, "(b s) t h d -> t b h s d", b=1)
-        
+
         with torch.autocast("cuda", enabled=False):
             with sdpa_attn_ctx():
                 out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
@@ -290,7 +297,6 @@ class AsymmetricAttention(nn.Module):
         x = x.view(B, M, self.num_heads * self.head_dim)
         # x = cp.all_to_all_collect_heads(x)  # (B, M, dim_x = num_heads * head_dim)
         x = self.proj_x(x)  # (B, M, dim_x)
-
         y = self.proj_y(y)  # (B, L, dim_y)
 
         return x, y
