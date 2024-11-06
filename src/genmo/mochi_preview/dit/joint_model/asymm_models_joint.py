@@ -270,6 +270,16 @@ class AsymmetricAttention(nn.Module):
         q_y = self.q_norm_y(q_y)
         k_y = self.k_norm_y(k_y)
 
+        # # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
+        indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
+        # indices (B, total, num_heads, head_dim)
+        indices = indices.unflatten(-1, (self.num_heads, self.head_dim)) 
+
+        assert valid_token_indices.size(0) <= B * L
+        q_y = torch.gather(q_y, 1, indices)
+        k_y = torch.gather(k_y, 1, indices)
+        v_y = torch.gather(v_y, 1, indices)
+
         # 4. use yunchang attention
         from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
@@ -293,13 +303,8 @@ class AsymmetricAttention(nn.Module):
             joint_strategy="rear",
         )
 
-
         # 3. concate image and text features
 
-        # # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
-        indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
-        # indices (B, total, num_heads, head_dim)
-        indices = indices.unflatten(-1, (self.num_heads, self.head_dim)) 
         # q = torch.gather(q, 1, indices)
         # k = torch.gather(k, 1, indices)
         # v = torch.gather(v, 1, indices)
@@ -331,18 +336,16 @@ class AsymmetricAttention(nn.Module):
         # yunchan ends
 
         # 5. gather xy with indices
-        tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=device, dtype=dtype)
-        tmp.scatter_(1, indices, xy)
-        xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
-        xy = xy.view(B, M + L, self.num_heads * self.head_dim)
         x, y =  torch.tensor_split(xy, (M,), dim=1)
-
-        # x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, q.dtype)
-        assert x.size() == (B, M, self.head_dim * self.num_heads)
-        assert y.size() == (B, L, self.head_dim * self.num_heads)
+        
+        tmp = torch.zeros(B, L, self.num_heads, self.head_dim, device=device, dtype=dtype)
+        tmp.scatter_(1, indices, y)
+        y = tmp.view(B, L, self.num_heads * self.head_dim)
+        x = x.view(B, M, self.num_heads * self.head_dim)
 
         # 7. project x and y
         x = x.view(B, M, self.num_heads * self.head_dim)
+        y = y.view(B, L, self.num_heads * self.head_dim)
         # x = cp.all_to_all_collect_heads(x)  # (B, M, dim_x = num_heads * head_dim)
         x = self.proj_x(x)  # (B, M, dim_x)
         y = self.proj_y(y)  # (B, L, dim_y)

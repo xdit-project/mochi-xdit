@@ -102,9 +102,7 @@ def test_forward_xdit_matches_forward():
     )  # Each are (N, num_heads, dim // 2)
 
     # Create packed indices
-    total_len = seq_len_x + seq_len_y
-    valid_token_indices = torch.arange(total_len, device=device)
-    cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
+
 
 
 
@@ -147,7 +145,7 @@ def test_forward_xdit_matches_forward():
         )
 
         total_len = x.size(1) + y.size(1)
-        valid_token_indices = torch.arange(total_len, device=device)
+        valid_token_indices = torch.arange(seq_len_y, device=device)
         cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
         packed_indices = {
             "valid_token_indices_kv": valid_token_indices, #? why its shape is not [total_len]
