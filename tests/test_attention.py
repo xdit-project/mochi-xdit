@@ -64,6 +64,10 @@ def test_forward_xdit_matches_forward():
         device=device,
     ).to(dtype)
 
+    # Broadcast model parameters from rank 0 to ensure consistency
+    for param in model.parameters():
+        torch.distributed.broadcast(param.data, src=0)
+
     # Create input tensors
     x = torch.randn(batch_size, seq_len_x, dim_x, device=device, dtype=dtype)
     y = torch.randn(batch_size, seq_len_y, dim_y, device=device, dtype=dtype)
@@ -82,6 +86,8 @@ def test_forward_xdit_matches_forward():
     # Initialize pos_frequencies with correct size
     pos_frequencies = torch.randn(3, num_heads, dim_x // num_heads // 2, device=device, dtype=dtype)
 
+    torch.distributed.broadcast(pos_frequencies, src=0)
+
     # Compute rotations for actual sequence length
     rope_cos, rope_sin = compute_mixed_rotation(
         freqs=pos_frequencies, 
@@ -92,15 +98,28 @@ def test_forward_xdit_matches_forward():
     total_len = seq_len_x + seq_len_y
     valid_token_indices = torch.arange(total_len, device=device)
     cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
-    
-    packed_indices = {
-        "valid_token_indices_kv": valid_token_indices,
-        "cu_seqlens_kv": cu_seqlens,
-        "max_seqlen_in_batch_kv": total_len,
-    }
+
+
 
     # Run both forward passes
     with torch.no_grad():
+
+        torch.distributed.broadcast(x, src=0)
+        torch.distributed.broadcast(y, src=0)
+        torch.distributed.broadcast(scale_x, src=0)
+        torch.distributed.broadcast(scale_y, src=0)
+        
+        torch.distributed.broadcast(rope_cos, src=0)
+        torch.distributed.broadcast(rope_sin, src=0)
+
+        packed_indices = {
+            "valid_token_indices_kv": valid_token_indices,
+            "cu_seqlens_kv": cu_seqlens,
+            "max_seqlen_in_batch_kv": total_len,
+        }
+        # print(f"rope_cos: {rope_cos.shape}, rope_sin: {rope_sin.shape}")
+
+
         out_forward = model.forward(
             x=x,
             y=y,
@@ -110,6 +129,19 @@ def test_forward_xdit_matches_forward():
             rope_cos=rope_cos,
             rope_sin=rope_sin,
         )
+
+        x = x.chunk(world_size, dim=1)[rank]
+        rope_cos = rope_cos.chunk(world_size, dim=0)[rank]
+        rope_sin = rope_sin.chunk(world_size, dim=0)[rank]
+
+        total_len = x.size(1) + y.size(1)
+        valid_token_indices = torch.arange(total_len, device=device)
+        cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
+        packed_indices = {
+            "valid_token_indices_kv": valid_token_indices,
+            "cu_seqlens_kv": cu_seqlens,
+            "max_seqlen_in_batch_kv": total_len,
+        }
 
         out_xdit = model.forward_xdit(
             x=x,
@@ -124,6 +156,8 @@ def test_forward_xdit_matches_forward():
     # Compare outputs
     x_forward, y_forward = out_forward
     x_xdit, y_xdit = out_xdit
+
+    x_forward = x_forward.chunk(world_size, dim=1)[rank]
 
     # Check shapes match
     assert x_forward.shape == x_xdit.shape, f"X shape mismatch: {x_forward.shape} vs {x_xdit.shape}"

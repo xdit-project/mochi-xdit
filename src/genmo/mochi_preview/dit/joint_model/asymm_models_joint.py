@@ -288,9 +288,6 @@ class AsymmetricAttention(nn.Module):
 
 
         # 3. concate image and text features
-        # q = torch.cat([q_x, q_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
-        # k = torch.cat([k_x, k_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
-        # v = torch.cat([v_x, v_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
 
         # # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
         indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
@@ -301,6 +298,10 @@ class AsymmetricAttention(nn.Module):
         # v = torch.gather(v, 1, indices)
 
         # 4. use sdpa_attn
+        # q = torch.cat([q_x, q_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        # k = torch.cat([k_x, k_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        # v = torch.cat([v_x, v_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+
         # q = q.transpose(1, 2)
         # k = k.transpose(1, 2)
         # v = v.transpose(1, 2)
@@ -323,9 +324,10 @@ class AsymmetricAttention(nn.Module):
         # yunchan ends
 
         # 5. gather xy with indices
-        tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=device, dtype=dtype)
-        tmp.scatter_(1, indices, xy)
-        xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
+        # tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=device, dtype=dtype)
+        # tmp.scatter_(1, indices, xy)
+        # xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
+        xy = xy.view(B, M + L, self.num_heads * self.head_dim)
         x, y =  torch.tensor_split(xy, (M,), dim=1)
 
         # x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, q.dtype)
