@@ -507,18 +507,18 @@ class MultiGPUContext:
 
         # TODO(jiaruifang) confuse local_rank and rank, not applied to multi-node
         if use_xdit:
+            cp_rank, cp_size = cp.get_cp_rank_size()
             from xfuser.core.distributed import (
                 init_distributed_environment,
                 initialize_model_parallel,
             )
-            init_distributed_environment(rank=local_rank, world_size=world_size)
+            init_distributed_environment(rank=cp_rank, world_size=cp_size)
             initialize_model_parallel(
-                sequence_parallel_degree=world_size,
+                sequence_parallel_degree=cp_size,
                 ring_degree=1,
-                ulysses_degree=world_size,
+                ulysses_degree=cp_size,
             )
-
-
+            print(f"initialized model parallel with sequence_parallel_degree={cp_size}, ring_degree=1, ulysses_degree={cp_size}")
     def run(self, *, fn, **kwargs):
         return fn(self, **kwargs)
 

@@ -238,9 +238,6 @@ class AsymmetricAttention(nn.Module):
         # NOTE() rope_cos and rope_sin are replicated across GPUs, we slice it here
         rope_cos=rope_rotation.get("rope_cos")
         rope_sin=rope_rotation.get("rope_sin")
-
-        print(f"rope_cos {rope_cos.shape}")
-
         # slice outside
         # cp_rank, cp_size = cp.get_cp_rank_size()
         # rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
