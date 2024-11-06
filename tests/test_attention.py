@@ -42,7 +42,6 @@ def init_dist(backend="nccl"):
     # activate the cp
     pg = torch.distributed.group.WORLD
     cp.set_cp_group(pg, list(range(world_size)), local_rank)
-
     assert cp.get_cp_rank_size() == (rank, world_size)
     return rank, world_size
 
@@ -96,6 +95,7 @@ def test_forward_xdit_matches_forward():
     torch.distributed.broadcast(pos_frequencies, src=0)
 
     # Compute rotations for actual sequence length
+    # rope_cos torch.Size([1592, 24, 64]) 
     rope_cos, rope_sin = compute_mixed_rotation(
         freqs=pos_frequencies, 
         pos=pos[:N]  # Only use positions up to sequence length
@@ -105,6 +105,7 @@ def test_forward_xdit_matches_forward():
     total_len = seq_len_x + seq_len_y
     valid_token_indices = torch.arange(total_len, device=device)
     cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
+
 
 
 
@@ -119,13 +120,6 @@ def test_forward_xdit_matches_forward():
         torch.distributed.broadcast(rope_cos, src=0)
         torch.distributed.broadcast(rope_sin, src=0)
 
-        packed_indices = {
-            "valid_token_indices_kv": valid_token_indices,
-            "cu_seqlens_kv": cu_seqlens,
-            "max_seqlen_in_batch_kv": total_len,
-        }
-        # print(f"rope_cos: {rope_cos.shape}, rope_sin: {rope_sin.shape}")
-
         total_len = seq_len_x + y.size(1)
         valid_token_indices = torch.arange(total_len, device=device)
         cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
@@ -136,14 +130,6 @@ def test_forward_xdit_matches_forward():
         }
 
         x = x.chunk(world_size, dim=1)[rank]
-        total_len = x.size(1) + y.size(1)
-        valid_token_indices = torch.arange(total_len, device=device)
-        cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
-        packed_indices = {
-            "valid_token_indices_kv": valid_token_indices,
-            "cu_seqlens_kv": cu_seqlens,
-            "max_seqlen_in_batch_kv": total_len,
-        }
 
         # the rope is sliced along the head dimension
         cp_rank, cp_size = cp.get_cp_rank_size()
@@ -160,6 +146,15 @@ def test_forward_xdit_matches_forward():
             rope_sin=rope_sin_local,
         )
 
+        total_len = x.size(1) + y.size(1)
+        valid_token_indices = torch.arange(total_len, device=device)
+        cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
+        packed_indices = {
+            "valid_token_indices_kv": valid_token_indices, #? why its shape is not [total_len]
+            "cu_seqlens_kv": cu_seqlens, # useless for xdit
+            "max_seqlen_in_batch_kv": total_len, # useless for xdit
+        }
+
         # NOTE() the input to rope is replicated
         out_xdit = model.forward_xdit(
             x=x,
@@ -175,8 +170,6 @@ def test_forward_xdit_matches_forward():
     x_forward, y_forward = out_forward
     x_xdit, y_xdit = out_xdit
 
-    x_forward = x_forward.chunk(world_size, dim=1)[rank]
-
     # Check shapes match
     assert x_forward.shape == x_xdit.shape, f"X shape mismatch: {x_forward.shape} vs {x_xdit.shape}"
     assert y_forward.shape == y_xdit.shape, f"Y shape mismatch: {y_forward.shape} vs {y_xdit.shape}"
@@ -185,6 +178,7 @@ def test_forward_xdit_matches_forward():
     torch.testing.assert_close(x_forward, x_xdit, rtol=1e-3, atol=1e-3)
     torch.testing.assert_close(y_forward, y_xdit, rtol=1e-3, atol=1e-3) 
 
+    print("Passed")
 
 if __name__ == "__main__":
     test_forward_xdit_matches_forward()

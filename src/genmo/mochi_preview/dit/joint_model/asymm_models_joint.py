@@ -241,8 +241,6 @@ class AsymmetricAttention(nn.Module):
 
 
         cp_rank, cp_size = cp.get_cp_rank_size()
-        print(f"cp_rank {cp_rank}, cp_size {cp_size}")
-        exit(0)
         rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
         rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
 
@@ -333,9 +331,9 @@ class AsymmetricAttention(nn.Module):
         # yunchan ends
 
         # 5. gather xy with indices
-        # tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=device, dtype=dtype)
-        # tmp.scatter_(1, indices, xy)
-        # xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
+        tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=device, dtype=dtype)
+        tmp.scatter_(1, indices, xy)
+        xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
         xy = xy.view(B, M + L, self.num_heads * self.head_dim)
         x, y =  torch.tensor_split(xy, (M,), dim=1)
 
@@ -404,6 +402,14 @@ class AsymmetricAttention(nn.Module):
         print(f"qkv {qkv.shape}")
         # valid_token_indices = packed_indices["valid_token_indices_kv"]
         # print(f"valid_token_indices {valid_token_indices}")
+
+        cp_rank, cp_size = cp.get_cp_rank_size()
+        print(f"cp_rank {cp_rank}: x.shape {x.shape}")
+        # p_rank 0: x.shape torch.Size([1, 7155, 3072]) 
+        # cp_rank 1: x.shape torch.Size([1, 7155, 3072])  
+        print(f"valid_token_indices {valid_token_indices}")
+        # assert valid_token_indices.size(0) == B * (M * cp_size + L), f"valid_token_indices.size(0) {valid_token_indices.size(0)} != B * (M * cp_size + L) {B * (M * cp_size + L)}"
+        # AssertionError: valid_token_indices.size(0) 14319 != B * (M * cp_size + L) 14566
         x, y = self.run_attention(
             qkv,
             B=B,
