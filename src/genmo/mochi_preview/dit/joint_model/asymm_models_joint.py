@@ -233,9 +233,19 @@ class AsymmetricAttention(nn.Module):
         device = x.device
         dtype = x.dtype
         
-
+        # NOTE() rope_cos and rope_sin are replicated across GPUs, we slice it here
         rope_cos=rope_rotation.get("rope_cos")
         rope_sin=rope_rotation.get("rope_sin")
+
+        print(f"rope_cos {rope_cos.shape}")
+
+
+        cp_rank, cp_size = cp.get_cp_rank_size()
+        print(f"cp_rank {cp_rank}, cp_size {cp_size}")
+        exit(0)
+        rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
+        rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
+
         valid_token_indices=packed_indices["valid_token_indices_kv"]
         
         # 1. Process image features
@@ -263,7 +273,6 @@ class AsymmetricAttention(nn.Module):
         k_y = self.k_norm_y(k_y)
 
         # 4. use yunchang attention
-        from xfuser.core.long_ctx_attention.ring.ring_flash_attn import xdit_ring_flash_attn_func
         from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
         attn_layer = xFuserLongContextAttention(

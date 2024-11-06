@@ -10,6 +10,7 @@ from xfuser.core.distributed import (
 from xfuser.core.long_ctx_attention.ring.ring_flash_attn import (
     xdit_ring_flash_attn_func,
 )
+import genmo.mochi_preview.dit.joint_model.context_parallel as cp
 
 def init_dist(backend="nccl"):
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -37,6 +38,12 @@ def init_dist(backend="nccl"):
         ring_degree=ring_degree,
         ulysses_degree=ulysses_degree,
     )
+
+    # activate the cp
+    pg = torch.distributed.group.WORLD
+    cp.set_cp_group(pg, list(range(world_size)), local_rank)
+
+    assert cp.get_cp_rank_size() == (rank, world_size)
     return rank, world_size
 
 def test_forward_xdit_matches_forward():
@@ -49,7 +56,7 @@ def test_forward_xdit_matches_forward():
     dtype = torch.bfloat16
     
     batch_size = 1
-    seq_len_x = 1590
+    seq_len_x = 1592
     seq_len_y = 256
 
     # Create model instance
@@ -57,7 +64,7 @@ def test_forward_xdit_matches_forward():
         dim_x=dim_x,
         dim_y=dim_y,
         num_heads=num_heads,
-        qkv_bias=True,
+        qkv_bias=False,
         qk_norm=True,
         update_y=True,
         attention_mode="sdpa",
@@ -119,21 +126,16 @@ def test_forward_xdit_matches_forward():
         }
         # print(f"rope_cos: {rope_cos.shape}, rope_sin: {rope_sin.shape}")
 
-
-        out_forward = model.forward(
-            x=x,
-            y=y,
-            scale_x=scale_x,
-            scale_y=scale_y,
-            packed_indices=packed_indices,
-            rope_cos=rope_cos,
-            rope_sin=rope_sin,
-        )
+        total_len = seq_len_x + y.size(1)
+        valid_token_indices = torch.arange(total_len, device=device)
+        cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
+        packed_indices = {
+            "valid_token_indices_kv": valid_token_indices,
+            "cu_seqlens_kv": cu_seqlens,
+            "max_seqlen_in_batch_kv": total_len,
+        }
 
         x = x.chunk(world_size, dim=1)[rank]
-        rope_cos = rope_cos.chunk(world_size, dim=0)[rank]
-        rope_sin = rope_sin.chunk(world_size, dim=0)[rank]
-
         total_len = x.size(1) + y.size(1)
         valid_token_indices = torch.arange(total_len, device=device)
         cu_seqlens = torch.tensor([0, total_len], device=device, dtype=torch.int32)
@@ -143,6 +145,22 @@ def test_forward_xdit_matches_forward():
             "max_seqlen_in_batch_kv": total_len,
         }
 
+        # the rope is sliced along the head dimension
+        cp_rank, cp_size = cp.get_cp_rank_size()
+        local_heads = num_heads // cp_size
+        rope_cos_local = rope_cos.narrow(1, cp_rank * local_heads, local_heads)
+        rope_sin_local = rope_sin.narrow(1, cp_rank * local_heads, local_heads)
+        out_forward = model.forward(
+            x=x,
+            y=y,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            packed_indices=packed_indices,
+            rope_cos=rope_cos_local,
+            rope_sin=rope_sin_local,
+        )
+
+        # NOTE() the input to rope is replicated
         out_xdit = model.forward_xdit(
             x=x,
             y=y,
