@@ -239,10 +239,10 @@ class AsymmetricAttention(nn.Module):
 
         print(f"rope_cos {rope_cos.shape}")
 
-
-        cp_rank, cp_size = cp.get_cp_rank_size()
-        rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
-        rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
+        # slice outside
+        # cp_rank, cp_size = cp.get_cp_rank_size()
+        # rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
+        # rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
 
         valid_token_indices=packed_indices["valid_token_indices_kv"]
         

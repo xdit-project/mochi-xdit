@@ -156,14 +156,16 @@ def test_forward_xdit_matches_forward():
         }
 
         # NOTE() the input to rope is replicated
+        rope_cos_local = rope_cos.chunk(world_size, dim=0)[rank]
+        rope_sin_local = rope_sin.chunk(world_size, dim=0)[rank]
         out_xdit = model.forward_xdit(
             x=x,
             y=y,
             scale_x=scale_x,
             scale_y=scale_y,
             packed_indices=packed_indices,
-            rope_cos=rope_cos,
-            rope_sin=rope_sin,
+            rope_cos=rope_cos_local,
+            rope_sin=rope_sin_local,
         )
 
     # Compare outputs
