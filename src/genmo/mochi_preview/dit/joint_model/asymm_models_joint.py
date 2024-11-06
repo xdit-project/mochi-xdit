@@ -259,38 +259,30 @@ class AsymmetricAttention(nn.Module):
         q_y = self.q_norm_y(q_y)
         k_y = self.k_norm_y(k_y)
 
-
         # 3. concate image and text features
         D = self.num_heads * self.head_dim
 
-        q = torch.cat([q_x, q_y], dim=1)
-        k = torch.cat([k_x, k_y], dim=1)
-        v = torch.cat([v_x, v_y], dim=1)
-        qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
+        q = torch.cat([q_x, q_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        k = torch.cat([k_x, k_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
+        v = torch.cat([v_x, v_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
 
-        indices = valid_token_indices[:, None, None].expand(-1, 3, D)
-        qkv = torch.gather(qkv, 0, indices)  # (total, 3, num_heads * head_dim)
-        qkv = qkv.unflatten(2, (self.num_heads, self.head_dim))
-    
-        # qkv = unify_streams(
-        #     q_x,
-        #     k_x,
-        #     v_x,
-        #     q_y,
-        #     k_y,
-        #     v_y,
-        #     valid_token_indices,
-        # )
+        # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
+        indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
+        indices = indices.unflatten(-1, (self.num_heads, self.head_dim)) 
+        q = torch.gather(q, 1, indices)
+        k = torch.gather(k, 1, indices)
+        v = torch.gather(v, 1, indices)
 
         # 4. attention
-        q, k, v = rearrange(qkv, "(b s) t h d -> t b h s d", b=1)
-
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
         with torch.autocast("cuda", enabled=False):
             with sdpa_attn_ctx():
                 out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
                 out = rearrange(out, "b h s d -> s (b h d)")
         
-        x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, qkv.dtype)
+        x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, q.dtype)
         assert x.size() == (B, M, self.head_dim * self.num_heads)
         assert y.size() == (B, L, self.head_dim * self.num_heads)
 
