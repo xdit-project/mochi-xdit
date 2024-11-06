@@ -260,32 +260,57 @@ class AsymmetricAttention(nn.Module):
         k_y = self.k_norm_y(k_y)
 
         # 3. concate image and text features
-        D = self.num_heads * self.head_dim
-
         q = torch.cat([q_x, q_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
         k = torch.cat([k_x, k_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
         v = torch.cat([v_x, v_y], dim=1).view(B, M + L, self.num_heads, self.head_dim)
 
         # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
         indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
+        # indices (B, total, num_heads, head_dim)
         indices = indices.unflatten(-1, (self.num_heads, self.head_dim)) 
         q = torch.gather(q, 1, indices)
         k = torch.gather(k, 1, indices)
         v = torch.gather(v, 1, indices)
 
-        # 4. attention
+# yunchang starts
+        # from xfuser.core.long_ctx_attention.ring.ring_flash_attn import xdit_ring_flash_attn_func
+        # xy = xdit_ring_flash_attn_func(
+        #     q=q_x,
+        #     k=k_x,
+        #     v=v_x,
+        #     dropout_p=0.0,
+        #     causal=False,
+        #     window_size=(-1, -1),
+        #     joint_tensor_key=q_y,
+        #     joint_tensor_key=k_y,
+        #     joint_tensor_value=v_y,
+        #     joint_strategy="rear"
+        # )
+
+        # 4. flash_attn layout attention
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
         with torch.autocast("cuda", enabled=False):
             with sdpa_attn_ctx():
                 out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
-                out = rearrange(out, "b h s d -> s (b h d)")
+                # out = rearrange(out, "b h s d -> s (b h d)")
+        xy = out.transpose(1, 2)
         
-        x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, q.dtype)
+
+# yunchan ends
+
+        # 5. gather xy with indices
+        tmp = torch.zeros(B, (M + L), self.num_heads, self.head_dim, device=xy.device, dtype=xy.dtype)
+        tmp.scatter_(1, indices, xy)
+        xy = tmp.view(B, M + L, self.num_heads * self.head_dim)
+        x, y =  torch.tensor_split(xy, (M,), dim=1)
+
+        # x, y = pad_and_split_xy(out, valid_token_indices, B, M, L, q.dtype)
         assert x.size() == (B, M, self.head_dim * self.num_heads)
         assert y.size() == (B, L, self.head_dim * self.num_heads)
 
+        # 7. project x and y
         x = x.view(B, M, self.num_heads * self.head_dim)
         # x = cp.all_to_all_collect_heads(x)  # (B, M, dim_x = num_heads * head_dim)
         x = self.proj_x(x)  # (B, M, dim_x)
