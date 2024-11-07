@@ -25,26 +25,14 @@ num_gpus = torch.cuda.device_count()
 cpu_offload = False
 dtype = None
 
-def configure_model(model_dir_path_, cpu_offload_, 
-        dtype_, use_xdit_, ulysses_degree_, ring_degree_, use_fsdp_, t5_model_path_, max_t5_token_length_):
+def configure_model(model_dir_path_, cpu_offload_, dtype_):
     global model_dir_path, cpu_offload, dtype
     model_dir_path = model_dir_path_
     cpu_offload = cpu_offload_
     dtype = dtype_
-    use_xdit = use_xdit_
-    ulysses_degree = ulysses_degree_
-    ring_degree = ring_degree_
-    use_fsdp = use_fsdp_
-    t5_model_path = t5_model_path_
-    max_t5_token_length = max_t5_token_length_
-    
-    set_use_xdit(use_xdit)
-    set_usp_config(ulysses_degree, ring_degree)
-    set_use_fsdp(use_fsdp)
-    set_t5_model(t5_model_path)
-    set_max_t5_token_length(max_t5_token_length)
 
-def load_model():
+def load_model(use_fsdp, t5_model_path, max_t5_token_length,
+        use_xdit, ulysses_degree, ring_degree):
     global num_gpus, pipeline, model_dir_path
     if pipeline is None:
         MOCHI_DIR = model_dir_path
@@ -67,8 +55,14 @@ def load_model():
         if num_gpus > 1:
             assert not cpu_offload, "CPU offload not supported in multi-GPU mode"
             kwargs["world_size"] = num_gpus
+            kwargs["use_xdit"] = use_xdit
+            kwargs["ulysses_degree"] = ulysses_degree
+            kwargs["ring_degree"] = ring_degree
         else:
             kwargs["cpu_offload"] = cpu_offload
+        kwargs["use_fsdp"] = use_fsdp
+        kwargs["t5_model_path"] = t5_model_path
+        kwargs["max_t5_token_length"] = max_t5_token_length
         kwargs["decode_type"] = "tiled_full"
         pipeline = klass(**kwargs)
 
@@ -82,8 +76,11 @@ def generate_video(
     seed,
     cfg_scale,
     num_inference_steps,
+    use_fsdp, t5_model_path, max_t5_token_length,
+    use_xdit, ulysses_degree, ring_degree, 
 ):
-    load_model()
+    load_model(use_fsdp, t5_model_path, max_t5_token_length,
+        use_xdit, ulysses_degree, ring_degree)
 
     # sigma_schedule should be a list of floats of length (num_inference_steps + 1),
     # such that sigma_schedule[0] == 1.0 and sigma_schedule[-1] == 0.0 and monotonically decreasing.
@@ -161,8 +158,7 @@ def generate_cli(
     prompt, negative_prompt, width, height, num_frames, seed, 
     cfg_scale, num_steps, model_dir, cpu_offload, use_xdit, ulysses_degree, ring_degree, use_fsdp, t5_model_path, max_t5_token_length   
 ):
-    configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit, ulysses_degree, 
-                   ring_degree, use_fsdp, t5_model_path, max_t5_token_length)
+    configure_model(model_dir, cpu_offload, torch.bfloat16)
     output = generate_video(
         prompt,
         negative_prompt,
@@ -172,6 +168,8 @@ def generate_cli(
         seed,
         cfg_scale,
         num_steps,
+        use_fsdp, t5_model_path, max_t5_token_length,
+        use_xdit, ulysses_degree, ring_degree, 
     )
     click.echo(f"Video generated at: {output}")
 
