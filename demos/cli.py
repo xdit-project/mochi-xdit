@@ -17,7 +17,7 @@ from genmo.mochi_preview.pipelines import (
     T5ModelFactory,
     linear_quadratic_schedule,
 )
-from genmo.mochi_preview.dit.joint_model import set_use_xdit
+from genmo.mochi_preview.dit.joint_model import set_use_xdit, set_usp_config
 
 pipeline = None
 model_dir_path = None
@@ -25,14 +25,16 @@ num_gpus = torch.cuda.device_count()
 cpu_offload = False
 dtype = None
 
-def configure_model(model_dir_path_, cpu_offload_, dtype_, use_xdit_):
-    global model_dir_path, cpu_offload, dtype, use_xdit
+def configure_model(model_dir_path_, cpu_offload_, dtype_, use_xdit_, ulysses_degree_, ring_degree_):
+    global model_dir_path, cpu_offload, dtype, use_xdit, ulysses_degree, ring_degree
     model_dir_path = model_dir_path_
     cpu_offload = cpu_offload_
     dtype = dtype_
     use_xdit = use_xdit_
+    ulysses_degree = ulysses_degree_
+    ring_degree = ring_degree_
     set_use_xdit(use_xdit)
-
+    set_usp_config(ulysses_degree, ring_degree)
 
 def load_model():
     global num_gpus, pipeline, model_dir_path
@@ -147,7 +149,7 @@ inviting atmosphere.
 def generate_cli(
     prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload, use_xdit, ulysses_degree, ring_degree
 ):
-    configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit)
+    configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit, ulysses_degree, ring_degree)
     output = generate_video(
         prompt,
         negative_prompt,
