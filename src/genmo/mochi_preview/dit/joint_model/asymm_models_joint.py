@@ -36,6 +36,12 @@ COMPILE_MMDIT_BLOCK = os.environ.get("COMPILE_DIT") == "1"
 from genmo.lib.attn_imports import comfy_attn, flash_varlen_qkvpacked_attn, sage_attn, sdpa_attn_ctx
 from genmo.mochi_preview.dit.joint_model import is_use_xdit
 
+from xfuser.core.distributed.parallel_state import (
+    get_sequence_parallel_rank,
+    get_sequence_parallel_world_size,
+    get_sp_group
+)
+
 class AsymmetricAttention(nn.Module):
     def __init__(
         self,
@@ -79,7 +85,7 @@ class AsymmetricAttention(nn.Module):
         self.proj_y = nn.Linear(dim_x, dim_y, bias=out_bias, device=device) if update_y else nn.Identity()
         self.use_xdit = is_use_xdit()
 
-        if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
+        if self.use_xdit and cp.is_cp_active() and get_sequence_parallel_world_size() > 1:
             from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
             self.xdit_attn_layer = xFuserLongContextAttention(
@@ -378,7 +384,7 @@ class AsymmetricAttention(nn.Module):
         **rope_rotation,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # gpu=1 can not use xdit, since distributed environment is not set up.
-        if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
+        if self.use_xdit and cp.is_cp_active() and get_sequence_parallel_world_size() > 1:
             return self._forward_xdit(
                 x=x,
                 y=y,
@@ -719,7 +725,10 @@ class AsymmDiTJoint(nn.Module):
             x, c, y_feat, rope_cos, rope_sin = self.prepare(x, sigma, y_feat[0], y_mask[0])
         del y_mask
 
-        cp_rank, cp_size = cp.get_cp_rank_size()
+        if not self.use_xdit:
+            cp_rank, cp_size = cp.get_cp_rank_size()
+        else:
+            cp_rank, cp_size = get_sequence_parallel_rank(), get_sequence_parallel_world_size()
         N = x.size(1)
         M = N // cp_size
         assert N % cp_size == 0, f"Visual sequence length ({x.shape[1]}) must be divisible by cp_size ({cp_size})."
@@ -750,8 +759,11 @@ class AsymmDiTJoint(nn.Module):
         x = self.final_layer(x, c)  # (B, M, patch_size ** 2 * out_channels)
 
         patch = x.size(2)
-        x = cp.all_gather(x)
-        x = rearrange(x, "(G B) M P -> B (G M) P", G=cp_size, P=patch)
+        if not self.use_xdit:
+            x = cp.all_gather(x)
+            x = rearrange(x, "(G B) M P -> B (G M) P", G=cp_size, P=patch)
+        else:
+            x = get_sp_group().all_gather(x, dim=1)
         x = rearrange(
             x,
             "B (T hp wp) (p1 p2 c) -> B c T (hp p1) (wp p2)",

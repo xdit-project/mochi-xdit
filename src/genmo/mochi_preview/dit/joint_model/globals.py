@@ -18,15 +18,17 @@ def is_use_xdit() -> bool:
 
 _ULYSSES_DEGREE = None
 _RING_DEGREE = None
+_CFG_PARALLEL = None
 
-def set_usp_config(ulysses_degree : int, ring_degree : int) -> None:
-    global _ULYSSES_DEGREE, _RING_DEGREE
+def set_usp_config(ulysses_degree : int, ring_degree : int, cfg_parallel : bool) -> None:
+    global _ULYSSES_DEGREE, _RING_DEGREE, _CFG_PARALLEL
     _ULYSSES_DEGREE = ulysses_degree
     _RING_DEGREE = ring_degree
-    print(f"Now we use xdit with ulysses degree {ulysses_degree} and ring degree {ring_degree}")
+    _CFG_PARALLEL = cfg_parallel
+    print(f"Now we use xdit with ulysses degree {ulysses_degree}, ring degree {ring_degree}, and CFG parallel {cfg_parallel}")
 
-def get_usp_config() -> Tuple[int, int]:
-    return _ULYSSES_DEGREE, _RING_DEGREE
+def get_usp_config() -> Tuple[int, int, bool]:
+    return _ULYSSES_DEGREE, _RING_DEGREE, _CFG_PARALLEL
 
 _USE_FSDP = False
 
@@ -51,3 +53,9 @@ def set_max_t5_token_length(max_t5_token_length: int) -> None:
     global MAX_T5_TOKEN_LENGTH
     MAX_T5_TOKEN_LENGTH = max_t5_token_length
     print(f"Now we use max t5 token length {max_t5_token_length}")
+
+def get_t5_model() -> str:
+    return T5_MODEL
+
+def get_max_t5_token_length() -> int:
+    return MAX_T5_TOKEN_LENGTH
