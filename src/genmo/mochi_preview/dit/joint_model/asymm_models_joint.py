@@ -80,6 +80,16 @@ class AsymmetricAttention(nn.Module):
         self.proj_y = nn.Linear(dim_x, dim_y, bias=out_bias, device=device) if update_y else nn.Identity()
         self.use_xdit = use_xdit
 
+        if self.use_xdit:
+            from xfuser.core.long_ctx_attention import xFuserLongContextAttention
+
+            self.xdit_attn_layer = xFuserLongContextAttention(
+                scatter_idx=2,
+                gather_idx=1,
+                ring_impl_type="basic",
+                use_kv_cache=False,
+            ).to(device=device, dtype=torch.bfloat16)
+
     def run_qkv_y(self, y):
         cp_rank, cp_size = cp.get_cp_rank_size()
         local_heads = self.num_heads // cp_size
@@ -279,17 +289,8 @@ class AsymmetricAttention(nn.Module):
         k_y = torch.gather(k_y, 1, indices)
         v_y = torch.gather(v_y, 1, indices)
 
-        # 4. use yunchang attention
-        from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
-        attn_layer = xFuserLongContextAttention(
-            scatter_idx=2,
-            gather_idx=1,
-            ring_impl_type="basic",
-            use_kv_cache=False,
-        ).to(device=q_x.device, dtype=q_x.dtype)
-
-        xy = attn_layer(
+        xy = self.xdit_attn_layer(
             attn=None,
             query=q_x,
             key=k_x,    
