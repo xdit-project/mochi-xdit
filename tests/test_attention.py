@@ -11,7 +11,7 @@ from xfuser.core.long_ctx_attention.ring.ring_flash_attn import (
     xdit_ring_flash_attn_func,
 )
 import genmo.mochi_preview.dit.joint_model.context_parallel as cp
-
+from genmo.mochi_preview.dit.joint_model import get_usp_config
 def init_dist(backend="nccl"):
     local_rank = int(os.environ["LOCAL_RANK"])
     rank = int(os.environ["RANK"])
@@ -26,18 +26,25 @@ def init_dist(backend="nccl"):
     # dist.init_process_group(backend=backend)
        # construct a hybrid sequence parallel config (ulysses=2, ring = world_size // 2)
 
-    if world_size > 1:
-        ring_degree = world_size // 2
-        ulysses_degree = 2
+    ulysses_degree, ring_degree = get_usp_config()
+    if ulysses_degree is None and ring_degree is None:
+        print(f"No usp config, use default config: ulysses_degree={world_size}, ring_degree=1")
+        initialize_model_parallel(
+            sequence_parallel_degree=world_size,
+            ring_degree=1,
+            ulysses_degree=world_size,
+        )
     else:
-        ring_degree = 1
-        ulysses_degree = 1
-
-    initialize_model_parallel(
-        sequence_parallel_degree=world_size,
-        ring_degree=ring_degree,
-        ulysses_degree=ulysses_degree,
-    )
+        if ulysses_degree is None:
+            ulysses_degree = world_size // ring_degree
+        if ring_degree is None:
+            ring_degree = world_size // ulysses_degree
+        print(f"Use usp config: ulysses_degree={ulysses_degree}, ring_degree={ring_degree}")
+        initialize_model_parallel(
+            sequence_parallel_degree=world_size,
+            ring_degree=ring_degree,
+            ulysses_degree=ulysses_degree,
+        )
 
     # activate the cp
     pg = torch.distributed.group.WORLD

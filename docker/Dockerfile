@@ -4,9 +4,9 @@ FROM thufeifeibear/xdit-dev:0.3.3
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* && apt-get update
 
-RUN apt install -y ffmpeg
+RUN apt-get install -y ffmpeg
 
 # Install the project using pip
 COPY . /app

@@ -142,8 +142,10 @@ inviting atmosphere.
 @click.option("--model_dir", required=True, help="Path to the model directory.")
 @click.option("--cpu_offload", is_flag=True, help="Whether to offload model to CPU")
 @click.option("--use_xdit", is_flag=True, help="Whether to use xDiT")
+@click.option("--ulysses_degree", default=None, type=int, help="Ulysses degree")
+@click.option("--ring_degree", default=None, type=int, help="Ring degree")
 def generate_cli(
-    prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload, use_xdit
+    prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload, use_xdit, ulysses_degree, ring_degree
 ):
     configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit)
     output = generate_video(

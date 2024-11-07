@@ -314,7 +314,6 @@ def sample_model(device, dit, conditioning, **args):
     sample_steps = args["num_inference_steps"]
     cfg_schedule = args["cfg_schedule"]
     sigma_schedule = args["sigma_schedule"]
-    use_xdit = is_use_xdit()
 
     assert_eq(len(cfg_schedule), sample_steps, "cfg_schedule must have length sample_steps")
     assert_eq((t - 1) % 6, 0, "t - 1 must be divisible by 6")

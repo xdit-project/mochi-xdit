@@ -49,7 +49,6 @@ class AsymmetricAttention(nn.Module):
         attention_mode: str = "flash",
         softmax_scale: Optional[float] = None,
         device: Optional[torch.device] = None,
-        use_xdit: bool = True,
     ):
         super().__init__()
         self.attention_mode = attention_mode
@@ -78,7 +77,7 @@ class AsymmetricAttention(nn.Module):
         # Output layers. y features go back down from dim_x -> dim_y.
         self.proj_x = nn.Linear(dim_x, dim_x, bias=out_bias, device=device)
         self.proj_y = nn.Linear(dim_x, dim_y, bias=out_bias, device=device) if update_y else nn.Identity()
-        self.use_xdit = use_xdit
+        self.use_xdit = is_use_xdit()
 
         if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
             from xfuser.core.long_ctx_attention import xFuserLongContextAttention
