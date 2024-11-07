@@ -1,5 +1,16 @@
 # mochi-xdit: Parallel Inference for mochi-preview video generation model with xDiT
 
+This repository provides an accelerated inference version of [Mochi 1](https://github.com/genmoai/models) using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
+
+## HightLights
+
+1. Memory Optimization makes mochi is  able to generate video on a single 48-GB GPU.
+2. Tiling VAE optimization: makes mochi generate video on 48 GB GPU.
+3. Unified Sequence Parallelism for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
+
+
+## Usage
+
 ### 1. Install from source
 
 ```shell
