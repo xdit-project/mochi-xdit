@@ -42,7 +42,7 @@ from genmo.mochi_preview.vae.models import (
 )
 from genmo.mochi_preview.vae.vae_stats import dit_latents_to_vae_latents
 from genmo.mochi_preview.dit.joint_model import is_use_xdit
-
+from genmo.mochi_preview.dit.joint_model import get_usp_config
 
 def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
     if linear_steps is None:
@@ -478,7 +478,6 @@ class MultiGPUContext:
         world_size,
         decode_type,
         decode_args,
-        use_xdit : bool = True,
     ):
         t = Timer()
         self.device = torch.device(f"cuda:{device_id}")
@@ -510,16 +509,37 @@ class MultiGPUContext:
         t.print_stats()
 
         # TODO(jiaruifang) confuse local_rank and rank, not applied to multi-node
-        if use_xdit:
+        if is_use_xdit():
             cp_rank, cp_size = cp.get_cp_rank_size()
             from xfuser.core.distributed import (
                 init_distributed_environment,
                 initialize_model_parallel,
             )
+
+            ulysses_degree, ring_degree = get_usp_config()
+            if ulysses_degree is None and ring_degree is None:
+                print(f"No usp config, use default config: ulysses_degree={cp_size}, ring_degree=1")
+                initialize_model_parallel(
+                    sequence_parallel_degree=world_size,
+                    ring_degree=1,
+                    ulysses_degree=cp_size,
+                )
+            else:
+                if ulysses_degree is None:
+                    ulysses_degree = world_size // ring_degree
+                if ring_degree is None:
+                    ring_degree = world_size // ulysses_degree
+                print(f"Use usp config: ulysses_degree={ulysses_degree}, ring_degree={ring_degree}")
+                initialize_model_parallel(
+                    sequence_parallel_degree=world_size,
+                    ring_degree=ring_degree,
+                    ulysses_degree=ulysses_degree,
+                )
             init_distributed_environment(rank=cp_rank, world_size=cp_size)
+
             initialize_model_parallel(
-                sequence_parallel_degree=cp_size,
-                ring_degree=1,
+                sequence_parallel_degree=ulysses_degree,
+                ring_degree=ring_degree,
                 ulysses_degree=cp_size,
             )
             print(f"initialized model parallel with sequence_parallel_degree={cp_size}, ring_degree=1, ulysses_degree={cp_size}")
@@ -537,7 +557,6 @@ class MochiMultiGPUPipeline:
         world_size: int,
         decode_type: str = "full",
         decode_args: Optional[Dict[str, Any]] = None,
-        use_xdit: bool = False,
     ):
         ray.init()
         RemoteClass = ray.remote(MultiGPUContext)
