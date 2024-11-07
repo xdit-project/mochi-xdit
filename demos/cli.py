@@ -17,7 +17,7 @@ from genmo.mochi_preview.pipelines import (
     T5ModelFactory,
     linear_quadratic_schedule,
 )
-from genmo.mochi_preview.dit.joint_model import set_use_xdit, set_usp_config
+from genmo.mochi_preview.dit.joint_model.globals import set_t5_model, set_max_t5_token_length, set_use_fsdp, set_use_xdit, set_usp_config
 
 pipeline = None
 model_dir_path = None
@@ -25,16 +25,24 @@ num_gpus = torch.cuda.device_count()
 cpu_offload = False
 dtype = None
 
-def configure_model(model_dir_path_, cpu_offload_, dtype_, use_xdit_, ulysses_degree_, ring_degree_):
-    global model_dir_path, cpu_offload, dtype, use_xdit, ulysses_degree, ring_degree
+def configure_model(model_dir_path_, cpu_offload_, 
+        dtype_, use_xdit_, ulysses_degree_, ring_degree_, use_fsdp_, t5_model_path_, max_t5_token_length_):
+    global model_dir_path, cpu_offload, dtype
     model_dir_path = model_dir_path_
     cpu_offload = cpu_offload_
     dtype = dtype_
     use_xdit = use_xdit_
     ulysses_degree = ulysses_degree_
     ring_degree = ring_degree_
+    use_fsdp = use_fsdp_
+    t5_model_path = t5_model_path_
+    max_t5_token_length = max_t5_token_length_
+    
     set_use_xdit(use_xdit)
     set_usp_config(ulysses_degree, ring_degree)
+    set_use_fsdp(use_fsdp)
+    set_t5_model(t5_model_path)
+    set_max_t5_token_length(max_t5_token_length)
 
 def load_model():
     global num_gpus, pipeline, model_dir_path
@@ -146,10 +154,15 @@ inviting atmosphere.
 @click.option("--use_xdit", is_flag=True, help="Whether to use xDiT")
 @click.option("--ulysses_degree", default=None, type=int, help="Ulysses degree")
 @click.option("--ring_degree", default=None, type=int, help="Ring degree")
+@click.option("--use_fsdp", is_flag=True, help="Whether to use FSDP")
+@click.option("--t5_model_path", default="/cfs/dit/t5-v1_1-xxl", type=str, help="the path of t5 model")
+@click.option("--max_t5_token_length", default=256, type=int, help="the max token length of t5")
 def generate_cli(
-    prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload, use_xdit, ulysses_degree, ring_degree
+    prompt, negative_prompt, width, height, num_frames, seed, 
+    cfg_scale, num_steps, model_dir, cpu_offload, use_xdit, ulysses_degree, ring_degree, use_fsdp, t5_model_path, max_t5_token_length   
 ):
-    configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit, ulysses_degree, ring_degree)
+    configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit, ulysses_degree, 
+                   ring_degree, use_fsdp, t5_model_path, max_t5_token_length)
     output = generate_video(
         prompt,
         negative_prompt,

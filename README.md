@@ -20,6 +20,13 @@ This repository provides an accelerated inference version of [Mochi 1](https://g
 3. Unified Sequence Parallelism for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
 
 
+| Feature | xdit | original |
+|:---:|:---:|:---:|
+| attention parallel | USP(Ulysses+Ring) | Ulysses |
+| VAE | input titling | X |
+| model loading | Replicated | FSDP |
+
+
 ## Usage
 
 ### 1. Install from source

@@ -43,6 +43,7 @@ from genmo.mochi_preview.vae.models import (
 from genmo.mochi_preview.vae.vae_stats import dit_latents_to_vae_latents
 from genmo.mochi_preview.dit.joint_model import is_use_xdit
 from genmo.mochi_preview.dit.joint_model import get_usp_config
+from genmo.mochi_preview.dit.joint_model.globals import T5_MODEL, MAX_T5_TOKEN_LENGTH, is_use_fsdp
 
 def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
     if linear_steps is None:
@@ -61,8 +62,6 @@ def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
     return sigma_schedule
 
 
-T5_MODEL = "/cfs/dit/t5-v1_1-xxl"
-MAX_T5_TOKEN_LENGTH = 256
 
 
 def setup_fsdp_sync(model, device_id, *, param_dtype, auto_wrap_policy) -> FSDP:
@@ -162,21 +161,24 @@ class DitModelFactory(ModelFactory):
             attention_mode=self.kwargs["attention_mode"],
         )
 
-        if local_rank == 0:
+        if local_rank == 0 or not is_use_fsdp():
             # FSDP syncs weights from rank 0 to all other ranks
             model.load_state_dict(load_file(self.kwargs["model_path"]))
 
         if world_size > 1:
             assert self.kwargs["model_dtype"] == "bf16", "FP8 is not supported for multi-GPU inference"
-            model = setup_fsdp_sync(
-                model,
-                device_id=device_id,
-                param_dtype=torch.bfloat16,
-                auto_wrap_policy=partial(
-                    lambda_auto_wrap_policy,
-                    lambda_fn=lambda m: m in model.blocks,
-                ),
-            )
+            if is_use_fsdp():
+                model = setup_fsdp_sync(
+                    model,
+                    device_id=device_id,
+                    param_dtype=torch.bfloat16,
+                    auto_wrap_policy=partial(
+                        lambda_auto_wrap_policy,
+                        lambda_fn=lambda m: m in model.blocks,
+                    ),
+                )
+            else:
+                model = model.to(torch.device(f"cuda:{device_id}"), dtype=self.dtype)
         elif isinstance(device_id, int):
             model = model.to(torch.device(f"cuda:{device_id}"), dtype=self.dtype)
         return model.eval()
