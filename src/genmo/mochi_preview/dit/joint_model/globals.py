@@ -11,7 +11,7 @@ def set_use_xdit(use_dit: bool) -> None:
     """
     global _USE_XDIT
     _USE_XDIT = use_dit
-    print(f"Now we use xdit")
+    print(f"The xDiT flag use_xdit={use_dit}")
 
 def is_use_xdit() -> bool:
     return _USE_XDIT

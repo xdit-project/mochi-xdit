@@ -563,7 +563,9 @@ class MochiMultiGPUPipeline:
                 f"Max memory reserved: {torch.cuda.max_memory_reserved() / 1024**3:.2f} GB"
             )
             print_max_memory()
-            with progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
+            
+            t = Timer()
+            with t("conditioning"), progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
                 conditioning = get_conditioning(
                     ctx.tokenizer,
                     ctx.text_encoder,
@@ -573,12 +575,15 @@ class MochiMultiGPUPipeline:
                     negative_prompt=negative_prompt,
                 )
             print_max_memory()
-            with progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
+            
+            with t("sampling"), progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
                 latents = sample_model(ctx.device, ctx.dit, conditioning=conditioning, **kwargs)
             print_max_memory()
+            
             if ctx.local_rank == 0:
                 torch.save(latents, "latents.pt")
-            with progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
+                
+            with t("decoding"), progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
                 frames = (
                     decode_latents_tiled_full(ctx.decoder, latents, **ctx.decode_args)
                     if ctx.decode_type == "tiled_full"
@@ -587,6 +592,10 @@ class MochiMultiGPUPipeline:
                     else decode_latents(ctx.decoder, latents)
                 )
                 print_max_memory()
+            
+            if ctx.local_rank == 0:
+                t.print_stats()
+                
             return frames.cpu().numpy()
 
         return ray.get([ctx.run.remote(fn=sample, **kwargs, show_progress=i == 0) for i, ctx in enumerate(self.ctxs)])[

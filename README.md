@@ -1,4 +1,15 @@
-# mochi-xdit: Parallel Inference for mochi-preview video generation model with xDiT
+# mochi-xdit: Parallel Inference for Mochi-preview Video Generation Model with xDiT
+
+This repository provides an accelerated inference version of [Mochi 1](https://github.com/genmoai/models) using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
+
+## HightLights
+
+1. Memory Optimization makes mochi is  able to generate video on a single 48-GB GPU.
+2. Tiling VAE optimization: makes mochi generate video on 48 GB GPU.
+3. Unified Sequence Parallelism for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
+
+
+## Usage
 
 This repository provides an accelerated inference version of [Mochi 1](https://github.com/genmoai/models) using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
 
@@ -35,9 +46,14 @@ CUDA_VISIBLE_DEVICES=0 python3 ./demos/cli.py --model_dir "<path_to_downloaded_d
 
 Running mochi with multiple GPUs using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
 
+Use the number of GPUs in CUDA_VISIBLE_DEVICES to control world_size.
+
+Adjust the configuration of ulysses_degree and ring_degree to achieve optimal performance. ulysses_degree x ring_degree = world_size.
+
 ```shell
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "prompt"  --use_xdit --ulysses_degree 2 --ring_degree 2
+python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "prompt" \
+ --use_xdit --ulysses_degree 2 --ring_degree 2
 ```
 
 
