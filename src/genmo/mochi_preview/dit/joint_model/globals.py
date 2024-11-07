@@ -39,7 +39,7 @@ def is_use_fsdp() -> bool:
     return _USE_FSDP
 
 
-T5_MODEL = "/cfs/dit/t5-v1_1-xxl"
+T5_MODEL = "google/t5-v1_1-xxl"
 MAX_T5_TOKEN_LENGTH = 256
 
 def set_t5_model(t5_model_path: str) -> None:

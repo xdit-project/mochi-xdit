@@ -17,7 +17,6 @@ from genmo.mochi_preview.pipelines import (
     T5ModelFactory,
     linear_quadratic_schedule,
 )
-from genmo.mochi_preview.dit.joint_model.globals import set_t5_model, set_max_t5_token_length, set_use_fsdp, set_use_xdit, set_usp_config
 
 pipeline = None
 model_dir_path = None
