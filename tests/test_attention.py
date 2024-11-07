@@ -39,6 +39,7 @@ def init_dist(backend="nccl"):
             ulysses_degree = world_size // ring_degree
         if ring_degree is None:
             ring_degree = world_size // ulysses_degree
+        assert ulysses_degree * ring_degree == world_size, f"ulysses_degree={ulysses_degree} * ring_degree={ring_degree} != world_size={world_size}"
         print(f"Use usp config: ulysses_degree={ulysses_degree}, ring_degree={ring_degree}")
         initialize_model_parallel(
             sequence_parallel_degree=world_size,
