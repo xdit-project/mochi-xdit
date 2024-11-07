@@ -41,6 +41,7 @@ from genmo.mochi_preview.vae.models import (
     decode_latents_tiled_spatial,
 )
 from genmo.mochi_preview.vae.vae_stats import dit_latents_to_vae_latents
+from genmo.mochi_preview.dit.joint_model import is_use_xdit
 
 
 def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
@@ -257,7 +258,7 @@ def get_conditioning_for_prompts(tokenizer, encoder, device, prompts: List[str])
 
 
 def compute_packed_indices(
-    device: torch.device, text_mask: torch.Tensor, num_latents: int, use_xdit: bool = True
+    device: torch.device, text_mask: torch.Tensor, num_latents: int
 ) -> Dict[str, Union[torch.Tensor, int]]:
     """
     Based on https://github.com/Dao-AILab/flash-attention/blob/765741c1eeb86c96ee71a3291ad6968cfbf4e4a1/flash_attn/bert_padding.py#L60-L80
@@ -280,7 +281,7 @@ def compute_packed_indices(
 
     mask = F.pad(text_mask, (num_visual_tokens, 0), value=True)  # (B, N + L)
     seqlens_in_batch = mask.sum(dim=-1, dtype=torch.int32)  # (B,)
-    if not use_xdit:
+    if not is_use_xdit():
         valid_token_indices = torch.nonzero(mask.flatten(), as_tuple=False).flatten()  # up to (B * (N + L),)
         assert valid_token_indices.size(0) >= text_mask.size(0) * num_visual_tokens  # At least (B * N,)
     else:
@@ -313,7 +314,7 @@ def sample_model(device, dit, conditioning, **args):
     sample_steps = args["num_inference_steps"]
     cfg_schedule = args["cfg_schedule"]
     sigma_schedule = args["sigma_schedule"]
-    use_xdit = args.get("use_xdit", True)
+    use_xdit = is_use_xdit()
 
     assert_eq(len(cfg_schedule), sample_steps, "cfg_schedule must have length sample_steps")
     assert_eq((t - 1) % 6, 0, "t - 1 must be divisible by 6")
@@ -341,11 +342,11 @@ def sample_model(device, dit, conditioning, **args):
     if "cond" in conditioning:
         cond_text = conditioning["cond"]
         cond_null = conditioning["null"]
-        cond_text["packed_indices"] = compute_packed_indices(device, cond_text["y_mask"][0], num_latents, use_xdit = use_xdit)
-        cond_null["packed_indices"] = compute_packed_indices(device, cond_null["y_mask"][0], num_latents, use_xdit = use_xdit)
+        cond_text["packed_indices"] = compute_packed_indices(device, cond_text["y_mask"][0], num_latents)
+        cond_null["packed_indices"] = compute_packed_indices(device, cond_null["y_mask"][0], num_latents)
     else:
         cond_batched = conditioning["batched"]
-        cond_batched["packed_indices"] = compute_packed_indices(device, cond_batched["y_mask"][0], num_latents, use_xdit = use_xdit)
+        cond_batched["packed_indices"] = compute_packed_indices(device, cond_batched["y_mask"][0], num_latents)
         z = repeat(z, "b ... -> (repeat b) ...", repeat=2)
 
     def model_fn(*, z, sigma, cfg_scale):
@@ -531,6 +532,7 @@ class MochiMultiGPUPipeline:
         dit_factory: ModelFactory,
         decoder_factory: ModelFactory,
         world_size: int,
+        use_xdit: bool = False,
     ):
         ray.init()
         RemoteClass = ray.remote(MultiGPUContext)

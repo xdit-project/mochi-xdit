@@ -34,7 +34,7 @@ COMPILE_FINAL_LAYER = os.environ.get("COMPILE_DIT") == "1"
 COMPILE_MMDIT_BLOCK = os.environ.get("COMPILE_DIT") == "1"
 
 from genmo.lib.attn_imports import comfy_attn, flash_varlen_qkvpacked_attn, sage_attn, sdpa_attn_ctx
-
+from genmo.mochi_preview.dit.joint_model import is_use_xdit
 
 class AsymmetricAttention(nn.Module):
     def __init__(
@@ -80,7 +80,7 @@ class AsymmetricAttention(nn.Module):
         self.proj_y = nn.Linear(dim_x, dim_y, bias=out_bias, device=device) if update_y else nn.Identity()
         self.use_xdit = use_xdit
 
-        if self.use_xdit:
+        if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
             from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
             self.xdit_attn_layer = xFuserLongContextAttention(
@@ -378,7 +378,8 @@ class AsymmetricAttention(nn.Module):
         packed_indices: Dict[str, torch.Tensor] = None,
         **rope_rotation,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.use_xdit:
+        # gpu=1 can not use xdit, since distributed environment is not set up.
+        if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
             return self._forward_xdit(
                 x=x,
                 y=y,
@@ -570,7 +571,6 @@ class AsymmDiTJoint(nn.Module):
         use_extended_posenc: bool = False,
         rope_theta: float = 10000.0,
         device: Optional[torch.device] = None,
-        use_xdit: bool = True,
         **block_kwargs,
     ):
         super().__init__()
@@ -631,7 +631,7 @@ class AsymmDiTJoint(nn.Module):
         self.blocks = nn.ModuleList(blocks)
 
         self.final_layer = FinalLayer(hidden_size_x, patch_size, self.out_channels, device=device)
-        self.use_xdit = use_xdit
+        self.use_xdit = is_use_xdit()
 
     def embed_x(self, x: torch.Tensor) -> torch.Tensor:
         """

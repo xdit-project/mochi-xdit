@@ -17,6 +17,7 @@ from genmo.mochi_preview.pipelines import (
     T5ModelFactory,
     linear_quadratic_schedule,
 )
+from genmo.mochi_preview.dit.joint_model import set_use_xdit
 
 pipeline = None
 model_dir_path = None
@@ -24,12 +25,13 @@ num_gpus = torch.cuda.device_count()
 cpu_offload = False
 dtype = None
 
-
-def configure_model(model_dir_path_, cpu_offload_, dtype_):
-    global model_dir_path, cpu_offload, dtype
+def configure_model(model_dir_path_, cpu_offload_, dtype_, use_xdit_):
+    global model_dir_path, cpu_offload, dtype, use_xdit
     model_dir_path = model_dir_path_
     cpu_offload = cpu_offload_
     dtype = dtype_
+    use_xdit = use_xdit_
+    set_use_xdit(use_xdit)
 
 
 def load_model():
@@ -139,10 +141,11 @@ inviting atmosphere.
 @click.option("--num_steps", default=64, type=int, help="Number of inference steps.")
 @click.option("--model_dir", required=True, help="Path to the model directory.")
 @click.option("--cpu_offload", is_flag=True, help="Whether to offload model to CPU")
+@click.option("--use_xdit", is_flag=True, help="Whether to use xDiT")
 def generate_cli(
-    prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload
+    prompt, negative_prompt, width, height, num_frames, seed, cfg_scale, num_steps, model_dir, cpu_offload, use_xdit
 ):
-    configure_model(model_dir, cpu_offload, torch.bfloat16)
+    configure_model(model_dir, cpu_offload, torch.bfloat16, use_xdit)
     output = generate_video(
         prompt,
         negative_prompt,
