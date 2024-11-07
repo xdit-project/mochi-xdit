@@ -436,7 +436,9 @@ class MochiSingleGPUPipeline:
                 f"Max memory reserved: {torch.cuda.max_memory_reserved() / 1024**3:.2f} GB"
             )
             print_max_memory()
-            with move_to_device(self.text_encoder, self.device):
+            
+            t = Timer()
+            with t("conditioning"), move_to_device(self.text_encoder, self.device):
                 conditioning = get_conditioning(
                     self.tokenizer,
                     self.text_encoder,
@@ -446,10 +448,12 @@ class MochiSingleGPUPipeline:
                     negative_prompt=negative_prompt,
                 )
             print_max_memory()
-            with move_to_device(self.dit, self.device):
+            
+            with t("sampling"), move_to_device(self.dit, self.device):
                 latents = sample_model(self.device, self.dit, conditioning, **kwargs)
             print_max_memory()
-            with move_to_device(self.decoder, self.device):
+            
+            with t("decoding"), move_to_device(self.decoder, self.device):
                 frames = (
                     decode_latents_tiled_full(self.decoder, latents, **self.decode_args)
                     if self.decode_type == "tiled_full"
@@ -458,6 +462,8 @@ class MochiSingleGPUPipeline:
                     else decode_latents(self.decoder, latents)
                 )
             print_max_memory()
+            
+            t.print_stats()  # Print timing statistics at the end
             return frames.cpu().numpy()
 
 
