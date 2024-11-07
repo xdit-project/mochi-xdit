@@ -8,7 +8,8 @@ Mochi-1 originally ran it on 4xH100 (100GB VRAM) GPUs, however, we made it run o
 
 1. Memory Optimization makes mochi is able to generate video on a single 48GB L40 GPU without no accuracy loss.
 2. Tiled VAE decoder enables the correct generation of video with any resolution.
-2. Unified Sequence Parallelism for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
+3. Unified Sequence Parallelism for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
+4. CFG parallel is first applied by us in Mochi-1.
 
 ## Usage
 
