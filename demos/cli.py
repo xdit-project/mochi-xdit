@@ -59,7 +59,7 @@ def load_model():
             kwargs["world_size"] = num_gpus
         else:
             kwargs["cpu_offload"] = cpu_offload
-            kwargs["decode_type"] = "tiled_full"
+        kwargs["decode_type"] = "tiled_full"
         pipeline = klass(**kwargs)
 
 
