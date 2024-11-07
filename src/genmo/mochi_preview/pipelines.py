@@ -44,6 +44,8 @@ from genmo.mochi_preview.vae.vae_stats import dit_latents_to_vae_latents
 from genmo.mochi_preview.dit.joint_model import is_use_xdit
 from genmo.mochi_preview.dit.joint_model import get_usp_config
 from genmo.mochi_preview.dit.joint_model.globals import T5_MODEL, MAX_T5_TOKEN_LENGTH, is_use_fsdp
+from genmo.mochi_preview.dit.joint_model.globals import set_t5_model, set_max_t5_token_length, set_use_fsdp, set_use_xdit, set_usp_config
+
 
 def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
     if linear_steps is None:
@@ -412,7 +414,14 @@ class MochiSingleGPUPipeline:
         cpu_offload: Optional[bool] = False,
         decode_type: str = "full",
         decode_args: Optional[Dict[str, Any]] = None,
+        use_fsdp,
+        t5_model_path,
+        max_t5_token_length,
     ):
+        set_use_fsdp(use_fsdp)
+        set_t5_model(t5_model_path)
+        set_max_t5_token_length(max_t5_token_length)
+
         self.device = torch.device("cuda:0")
         self.tokenizer = t5_tokenizer()
         t = Timer()
@@ -486,13 +495,25 @@ class MultiGPUContext:
         world_size,
         decode_type,
         decode_args,
+        use_fsdp,
+        t5_model_path,
+        max_t5_token_length,
+        use_xdit,
+        ulysses_degree,
+        ring_degree,
     ):
+        set_use_fsdp(use_fsdp)
+        set_t5_model(t5_model_path)
+        set_max_t5_token_length(max_t5_token_length)
+        set_use_xdit(use_xdit)
+        set_usp_config(ulysses_degree, ring_degree)
+
         t = Timer()
         self.device = torch.device(f"cuda:{device_id}")
         print(f"Initializing rank {local_rank+1}/{world_size}")
         assert world_size > 1, f"Multi-GPU mode requires world_size > 1, got {world_size}"
         os.environ["MASTER_ADDR"] = "127.0.0.1"
-        os.environ["MASTER_PORT"] = "29500"
+        os.environ["MASTER_PORT"] = "29501"
         with t("init_process_group"):
             dist.init_process_group(
                 "nccl",
@@ -504,18 +525,10 @@ class MultiGPUContext:
         cp.set_cp_group(pg, list(range(world_size)), local_rank)
         distributed_kwargs = dict(local_rank=local_rank, device_id=device_id, world_size=world_size)
         self.world_size = world_size
-        self.tokenizer = t5_tokenizer()
-        with t("load_text_encoder"):
-            self.text_encoder = text_encoder_factory.get_model(**distributed_kwargs)
-        with t("load_dit"):
-            self.dit = dit_factory.get_model(**distributed_kwargs)
-        with t("load_vae"):
-            self.decoder = decoder_factory.get_model(**distributed_kwargs)
         self.local_rank = local_rank
         self.decode_type = decode_type
         self.decode_args = decode_args or {}
-        t.print_stats()
-
+        
         # TODO(jiaruifang) confuse local_rank and rank, not applied to multi-node
         if is_use_xdit():
             cp_rank, cp_size = cp.get_cp_rank_size()
@@ -525,6 +538,7 @@ class MultiGPUContext:
             )
 
             ulysses_degree, ring_degree = get_usp_config()
+            init_distributed_environment(rank=cp_rank, world_size=cp_size)
             if ulysses_degree is None and ring_degree is None:
                 print(f"No usp config, use default config: ulysses_degree={cp_size}, ring_degree=1")
                 initialize_model_parallel(
@@ -543,14 +557,19 @@ class MultiGPUContext:
                     ring_degree=ring_degree,
                     ulysses_degree=ulysses_degree,
                 )
-            init_distributed_environment(rank=cp_rank, world_size=cp_size)
 
-            initialize_model_parallel(
-                sequence_parallel_degree=ulysses_degree,
-                ring_degree=ring_degree,
-                ulysses_degree=cp_size,
-            )
             print(f"initialized model parallel with sequence_parallel_degree={cp_size}, ring_degree=1, ulysses_degree={cp_size}")
+
+        self.tokenizer = t5_tokenizer()
+        with t("load_text_encoder"):
+            self.text_encoder = text_encoder_factory.get_model(**distributed_kwargs)
+        with t("load_dit"):
+            self.dit = dit_factory.get_model(**distributed_kwargs)
+        with t("load_vae"):
+            self.decoder = decoder_factory.get_model(**distributed_kwargs)
+
+        t.print_stats()
+
     def run(self, *, fn, **kwargs):
         return fn(self, **kwargs)
 
@@ -565,6 +584,12 @@ class MochiMultiGPUPipeline:
         world_size: int,
         decode_type: str = "full",
         decode_args: Optional[Dict[str, Any]] = None,
+        use_fsdp,
+        t5_model_path,
+        max_t5_token_length,
+        use_xdit,
+        ulysses_degree,
+        ring_degree,
     ):
         ray.init()
         RemoteClass = ray.remote(MultiGPUContext)
@@ -578,6 +603,12 @@ class MochiMultiGPUPipeline:
                 local_rank=i,
                 decode_type=decode_type,
                 decode_args=decode_args,
+                use_fsdp=use_fsdp,
+                t5_model_path=t5_model_path,
+                max_t5_token_length=max_t5_token_length,
+                use_xdit=use_xdit,
+                ulysses_degree=ulysses_degree,
+                ring_degree=ring_degree,
             )
             for i in range(world_size)
         ]
