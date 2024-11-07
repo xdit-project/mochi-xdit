@@ -41,6 +41,7 @@ from genmo.mochi_preview.vae.models import (
     decode_latents_tiled_spatial,
 )
 from genmo.mochi_preview.vae.vae_stats import dit_latents_to_vae_latents
+from genmo.mochi_preview.dit.joint_model import is_use_xdit
 
 
 def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
@@ -280,8 +281,12 @@ def compute_packed_indices(
 
     mask = F.pad(text_mask, (num_visual_tokens, 0), value=True)  # (B, N + L)
     seqlens_in_batch = mask.sum(dim=-1, dtype=torch.int32)  # (B,)
-    valid_token_indices = torch.nonzero(mask.flatten(), as_tuple=False).flatten()  # up to (B * (N + L),)
-    assert valid_token_indices.size(0) >= text_mask.size(0) * num_visual_tokens  # At least (B * N,)
+    if not is_use_xdit():
+        valid_token_indices = torch.nonzero(mask.flatten(), as_tuple=False).flatten()  # up to (B * (N + L),)
+        assert valid_token_indices.size(0) >= text_mask.size(0) * num_visual_tokens  # At least (B * N,)
+    else:
+        valid_token_indices = torch.nonzero(text_mask.flatten(), as_tuple=False).flatten()  # up to (B * L),)
+
     cu_seqlens = F.pad(torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.int32), (1, 0))
     max_seqlen_in_batch = seqlens_in_batch.max().item()
 
@@ -453,7 +458,7 @@ class MochiSingleGPUPipeline:
                     else decode_latents(self.decoder, latents)
                 )
             print_max_memory()
-            return frames.cpu().float().numpy()
+            return frames.cpu().numpy()
 
 
 ### ALL CODE BELOW HERE IS FOR MULTI-GPU MODE ###
@@ -471,6 +476,9 @@ class MultiGPUContext:
         device_id,
         local_rank,
         world_size,
+        decode_type,
+        decode_args,
+        use_xdit : bool = True,
     ):
         t = Timer()
         self.device = torch.device(f"cuda:{device_id}")
@@ -497,8 +505,24 @@ class MultiGPUContext:
         with t("load_vae"):
             self.decoder = decoder_factory.get_model(**distributed_kwargs)
         self.local_rank = local_rank
+        self.decode_type = decode_type
+        self.decode_args = decode_args or {}
         t.print_stats()
 
+        # TODO(jiaruifang) confuse local_rank and rank, not applied to multi-node
+        if use_xdit:
+            cp_rank, cp_size = cp.get_cp_rank_size()
+            from xfuser.core.distributed import (
+                init_distributed_environment,
+                initialize_model_parallel,
+            )
+            init_distributed_environment(rank=cp_rank, world_size=cp_size)
+            initialize_model_parallel(
+                sequence_parallel_degree=cp_size,
+                ring_degree=1,
+                ulysses_degree=cp_size,
+            )
+            print(f"initialized model parallel with sequence_parallel_degree={cp_size}, ring_degree=1, ulysses_degree={cp_size}")
     def run(self, *, fn, **kwargs):
         return fn(self, **kwargs)
 
@@ -511,6 +535,9 @@ class MochiMultiGPUPipeline:
         dit_factory: ModelFactory,
         decoder_factory: ModelFactory,
         world_size: int,
+        decode_type: str = "full",
+        decode_args: Optional[Dict[str, Any]] = None,
+        use_xdit: bool = False,
     ):
         ray.init()
         RemoteClass = ray.remote(MultiGPUContext)
@@ -522,6 +549,8 @@ class MochiMultiGPUPipeline:
                 world_size=world_size,
                 device_id=0,
                 local_rank=i,
+                decode_type=decode_type,
+                decode_args=decode_args,
             )
             for i in range(world_size)
         ]
@@ -530,6 +559,10 @@ class MochiMultiGPUPipeline:
 
     def __call__(self, **kwargs):
         def sample(ctx, *, batch_cfg, prompt, negative_prompt, **kwargs):
+            print_max_memory = lambda: print(
+                f"Max memory reserved: {torch.cuda.max_memory_reserved() / 1024**3:.2f} GB"
+            )
+            print_max_memory()
             with progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
                 conditioning = get_conditioning(
                     ctx.tokenizer,
@@ -539,10 +572,21 @@ class MochiMultiGPUPipeline:
                     prompt=prompt,
                     negative_prompt=negative_prompt,
                 )
+            print_max_memory()
+            with progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
                 latents = sample_model(ctx.device, ctx.dit, conditioning=conditioning, **kwargs)
-                if ctx.local_rank == 0:
-                    torch.save(latents, "latents.pt")
-                frames = decode_latents(ctx.decoder, latents)
+            print_max_memory()
+            if ctx.local_rank == 0:
+                torch.save(latents, "latents.pt")
+            with progress_bar(type="ray_tqdm", enabled=ctx.local_rank == 0), torch.inference_mode():
+                frames = (
+                    decode_latents_tiled_full(ctx.decoder, latents, **ctx.decode_args)
+                    if ctx.decode_type == "tiled_full"
+                    else decode_latents_tiled_spatial(ctx.decoder, latents, **ctx.decode_args)
+                    if ctx.decode_type == "tiled_spatial"
+                    else decode_latents(ctx.decoder, latents)
+                )
+                print_max_memory()
             return frames.cpu().numpy()
 
         return ray.get([ctx.run.remote(fn=sample, **kwargs, show_progress=i == 0) for i, ctx in enumerate(self.ctxs)])[

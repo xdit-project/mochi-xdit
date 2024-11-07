@@ -34,7 +34,7 @@ COMPILE_FINAL_LAYER = os.environ.get("COMPILE_DIT") == "1"
 COMPILE_MMDIT_BLOCK = os.environ.get("COMPILE_DIT") == "1"
 
 from genmo.lib.attn_imports import comfy_attn, flash_varlen_qkvpacked_attn, sage_attn, sdpa_attn_ctx
-
+from genmo.mochi_preview.dit.joint_model import is_use_xdit
 
 class AsymmetricAttention(nn.Module):
     def __init__(
@@ -77,6 +77,17 @@ class AsymmetricAttention(nn.Module):
         # Output layers. y features go back down from dim_x -> dim_y.
         self.proj_x = nn.Linear(dim_x, dim_x, bias=out_bias, device=device)
         self.proj_y = nn.Linear(dim_x, dim_y, bias=out_bias, device=device) if update_y else nn.Identity()
+        self.use_xdit = is_use_xdit()
+
+        if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
+            from xfuser.core.long_ctx_attention import xFuserLongContextAttention
+
+            self.xdit_attn_layer = xFuserLongContextAttention(
+                scatter_idx=2,
+                gather_idx=1,
+                ring_impl_type="basic",
+                use_kv_cache=False,
+            ).to(device=device, dtype=torch.bfloat16)
 
     def run_qkv_y(self, y):
         cp_rank, cp_size = cp.get_cp_rank_size()
@@ -216,7 +227,99 @@ class AsymmetricAttention(nn.Module):
         y = self.proj_y(y)  # (B, L, dim_y)
         return x, y
 
-    def forward(
+    @torch.no_grad()
+    def _forward_xdit(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        *,
+        scale_x: torch.Tensor,  # (B, dim_x), modulation for pre-RMSNorm.
+        scale_y: torch.Tensor,  # (B, dim_y), modulation for pre-RMSNorm.
+        packed_indices: Dict[str, torch.Tensor] = None,
+        **rope_rotation,
+    ):
+        # from xfuser.core.long_ctx_attention.ring import xdit_ring_flash_attn_func
+        B, L, _ = y.shape
+        _, M, _ = x.shape
+        device = x.device
+        dtype = x.dtype
+        
+        # NOTE() rope_cos and rope_sin are replicated across GPUs, we slice it here
+        rope_cos=rope_rotation.get("rope_cos")
+        rope_sin=rope_rotation.get("rope_sin")
+        # slice outside
+        # cp_rank, cp_size = cp.get_cp_rank_size()
+        # rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
+        # rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
+
+        valid_token_indices=packed_indices["valid_token_indices_kv"]
+        
+        # 1. Process image features
+        x = modulated_rmsnorm(x, scale_x)  # (B, M, dim_x) where M = N / cp_group_size
+        qkv_x = self.qkv_x(x)  # (B, M, 3 * dim_x)
+        assert qkv_x.dtype == torch.bfloat16
+        # qkv_x = cp.all_to_all_collect_tokens(qkv_x, self.num_heads)  # (3, B, N, local_h, head_dim)
+        qkv_x = qkv_x.view(B, M, 3, self.num_heads, self.head_dim).transpose(0, 2).contiguous().transpose(1, 2).contiguous()
+        # (B, M, 3, num_heads, head_dim) -> (3, M, B, num_heads, head_dim) -> (3, B, M, num_heads, head_dim)
+
+        # Split qkv_x into q, k, v
+        q_x, k_x, v_x = qkv_x.unbind(0)  # (B, N, local_h, head_dim)
+        q_x = self.q_norm_x(q_x)
+        q_x = apply_rotary_emb_qk_real(q_x, rope_cos, rope_sin)
+        k_x = self.k_norm_x(k_x)
+        k_x = apply_rotary_emb_qk_real(k_x, rope_cos, rope_sin)
+
+        # 2. Process text features
+        y = modulated_rmsnorm(y, scale_y)  # (B, L, dim_y)
+        qkv_y = self.qkv_y(y)  # (B, L, 3 * dim)
+        qkv_y = qkv_y.view(qkv_y.size(0), qkv_y.size(1), 3, self.num_heads, self.head_dim)
+        q_y, k_y, v_y = qkv_y.unbind(2)
+
+        q_y = self.q_norm_y(q_y)
+        k_y = self.k_norm_y(k_y)
+
+        # # qkv = torch.stack([q, k, v], dim=2).view(B * (M + L), 3, D)
+        indices = valid_token_indices[None, :, None].expand(B, valid_token_indices.size(0), self.num_heads * self.head_dim)
+        # indices (B, total, num_heads, head_dim)
+        indices = indices.unflatten(-1, (self.num_heads, self.head_dim)) 
+
+        assert valid_token_indices.size(0) <= B * L
+        q_y = torch.gather(q_y, 1, indices)
+        k_y = torch.gather(k_y, 1, indices)
+        v_y = torch.gather(v_y, 1, indices)
+
+
+        xy = self.xdit_attn_layer(
+            attn=None,
+            query=q_x,
+            key=k_x,    
+            value=v_x,
+            dropout_p=0.0,
+            window_size=(-1, -1),
+            joint_tensor_query=q_y,
+            joint_tensor_key=k_y,
+            joint_tensor_value=v_y,
+            joint_strategy="rear",
+        )
+
+        # 5. gather xy with indices
+        x, y =  torch.tensor_split(xy, (M,), dim=1)
+        
+        tmp = torch.zeros(B, L, self.num_heads, self.head_dim, device=device, dtype=dtype)
+        tmp.scatter_(1, indices, y)
+        y = tmp.view(B, L, self.num_heads * self.head_dim)
+        x = x.view(B, M, self.num_heads * self.head_dim)
+
+        # 7. project x and y
+        x = x.view(B, M, self.num_heads * self.head_dim)
+        y = y.view(B, L, self.num_heads * self.head_dim)
+        # x = cp.all_to_all_collect_heads(x)  # (B, M, dim_x = num_heads * head_dim)
+        x = self.proj_x(x)  # (B, M, dim_x)
+        y = self.proj_y(y)  # (B, L, dim_y)
+
+        return x, y
+
+    def _forward_original(
         self,
         x: torch.Tensor,  # (B, N, dim_x)
         y: torch.Tensor,  # (B, L, dim_y)
@@ -264,7 +367,36 @@ class AsymmetricAttention(nn.Module):
         )
         return x, y
 
-
+    def forward(
+        self,
+        x: torch.Tensor,  # (B, N, dim_x)
+        y: torch.Tensor,  # (B, L, dim_y)
+        *,
+        scale_x: torch.Tensor,  # (B, dim_x), modulation for pre-RMSNorm.
+        scale_y: torch.Tensor,  # (B, dim_y), modulation for pre-RMSNorm.
+        packed_indices: Dict[str, torch.Tensor] = None,
+        **rope_rotation,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # gpu=1 can not use xdit, since distributed environment is not set up.
+        if self.use_xdit and cp.is_cp_active() and cp.get_cp_rank_size()[1] > 1:
+            return self._forward_xdit(
+                x=x,
+                y=y,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                packed_indices=packed_indices,
+                **rope_rotation
+            )
+        else:
+            return self._forward_original(
+                x=x,
+                y=y,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                packed_indices=packed_indices,
+                **rope_rotation
+            )
+        
 @torch.compile(disable=not COMPILE_MMDIT_BLOCK)
 class AsymmetricJointBlock(nn.Module):
     def __init__(
@@ -498,6 +630,7 @@ class AsymmDiTJoint(nn.Module):
         self.blocks = nn.ModuleList(blocks)
 
         self.final_layer = FinalLayer(hidden_size_x, patch_size, self.out_channels, device=device)
+        self.use_xdit = is_use_xdit()
 
     def embed_x(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -596,8 +729,12 @@ class AsymmDiTJoint(nn.Module):
 
             assert self.num_heads % cp_size == 0
             local_heads = self.num_heads // cp_size
-            rope_cos = rope_cos.narrow(1, cp_rank * local_heads, local_heads)
-            rope_sin = rope_sin.narrow(1, cp_rank * local_heads, local_heads)
+            if not self.use_xdit:
+                rope_cos = rope_cos.narrow(1, cp_rank * local_heads, local_heads)
+                rope_sin = rope_sin.narrow(1, cp_rank * local_heads, local_heads)
+            else:
+                rope_cos = rope_cos.chunk(cp_size, dim=0)[cp_rank]
+                rope_sin = rope_sin.chunk(cp_size, dim=0)[cp_rank]
 
         for i, block in enumerate(self.blocks):
             x, y_feat = block(
