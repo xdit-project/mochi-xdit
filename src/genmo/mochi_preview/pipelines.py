@@ -43,9 +43,14 @@ from genmo.mochi_preview.vae.models import (
 from genmo.mochi_preview.vae.vae_stats import dit_latents_to_vae_latents
 from genmo.mochi_preview.dit.joint_model import is_use_xdit
 from genmo.mochi_preview.dit.joint_model import get_usp_config
-from genmo.mochi_preview.dit.joint_model.globals import T5_MODEL, MAX_T5_TOKEN_LENGTH, is_use_fsdp
+from genmo.mochi_preview.dit.joint_model.globals import get_t5_model, get_max_t5_token_length, is_use_fsdp
 from genmo.mochi_preview.dit.joint_model.globals import set_t5_model, set_max_t5_token_length, set_use_fsdp, set_use_xdit, set_usp_config
 
+from xfuser.core.distributed.parallel_state import (
+    get_classifier_free_guidance_world_size,
+    get_classifier_free_guidance_rank,
+    get_cfg_group
+)
 
 def linear_quadratic_schedule(num_steps, threshold_noise, linear_steps=None):
     if linear_steps is None:
@@ -106,7 +111,7 @@ class T5ModelFactory(ModelFactory):
 
     def get_model(self, *, local_rank, device_id, world_size):
         super().get_model(local_rank=local_rank, device_id=device_id, world_size=world_size)
-        model = T5EncoderModel.from_pretrained(T5_MODEL)
+        model = T5EncoderModel.from_pretrained(get_t5_model())
         if world_size > 1:
             model = setup_fsdp_sync(
                 model,
@@ -232,7 +237,7 @@ def get_conditioning_for_prompts(tokenizer, encoder, device, prompts: List[str])
         prompts,
         padding="max_length",
         truncation=True,
-        max_length=MAX_T5_TOKEN_LENGTH,
+        max_length=get_max_t5_token_length(),
         return_tensors="pt",
         return_attention_mask=True,
     )
@@ -240,8 +245,8 @@ def get_conditioning_for_prompts(tokenizer, encoder, device, prompts: List[str])
     caption_attention_mask_t5 = t5_toks["attention_mask"].bool()
     del t5_toks
 
-    assert caption_input_ids_t5.shape == (B, MAX_T5_TOKEN_LENGTH)
-    assert caption_attention_mask_t5.shape == (B, MAX_T5_TOKEN_LENGTH)
+    assert caption_input_ids_t5.shape == (B, get_max_t5_token_length())
+    assert caption_attention_mask_t5.shape == (B, get_max_t5_token_length())
 
     # Special-case empty negative prompt by zero-ing it
     if prompts[-1] == "":
@@ -255,7 +260,7 @@ def get_conditioning_for_prompts(tokenizer, encoder, device, prompts: List[str])
     y_feat = [encoder(caption_input_ids_t5, caption_attention_mask_t5).last_hidden_state.detach()]
     # Sometimes returns a tensor, othertimes a tuple, not sure why
     # See: https://huggingface.co/genmo/mochi-1-preview/discussions/3
-    assert tuple(y_feat[-1].shape) == (B, MAX_T5_TOKEN_LENGTH, 4096)
+    assert tuple(y_feat[-1].shape) == (B, get_max_t5_token_length(), 4096)
     #assert y_feat[-1].dtype == torch.float32
 
     return dict(y_mask=y_mask, y_feat=y_feat)
@@ -360,8 +365,17 @@ def sample_model(device, dit, conditioning, **args):
         else:
             nonlocal cond_text, cond_null
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                out_cond = dit(z, sigma, **cond_text)
-                out_uncond = dit(z, sigma, **cond_null)
+                if is_use_xdit() and get_classifier_free_guidance_world_size() == 2:
+                    if get_classifier_free_guidance_rank() == 0:
+                        out = dit(z, sigma, **cond_text)
+                    else:
+                        out = dit(z, sigma, **cond_null)
+                    out_cond, out_uncond = get_cfg_group().all_gather(
+                        out, separate_tensors=True
+                    )
+                else:
+                    out_cond = dit(z, sigma, **cond_text)
+                    out_uncond = dit(z, sigma, **cond_null)
         assert out_cond.shape == out_uncond.shape
         out_uncond = out_uncond.to(z)
         out_cond = out_cond.to(z)
@@ -401,7 +415,7 @@ def move_to_device(model: nn.Module, target_device):
 
 
 def t5_tokenizer():
-    return T5Tokenizer.from_pretrained(T5_MODEL, legacy=False)
+    return T5Tokenizer.from_pretrained(get_t5_model(), legacy=False)
 
 
 class MochiSingleGPUPipeline:
@@ -501,19 +515,20 @@ class MultiGPUContext:
         use_xdit,
         ulysses_degree,
         ring_degree,
+        cfg_parallel,
     ):
         set_use_fsdp(use_fsdp)
         set_t5_model(t5_model_path)
         set_max_t5_token_length(max_t5_token_length)
         set_use_xdit(use_xdit)
-        set_usp_config(ulysses_degree, ring_degree)
+        set_usp_config(ulysses_degree, ring_degree, cfg_parallel)
 
         t = Timer()
         self.device = torch.device(f"cuda:{device_id}")
         print(f"Initializing rank {local_rank+1}/{world_size}")
         assert world_size > 1, f"Multi-GPU mode requires world_size > 1, got {world_size}"
         os.environ["MASTER_ADDR"] = "127.0.0.1"
-        os.environ["MASTER_PORT"] = "29501"
+        os.environ["MASTER_PORT"] = "29500"
         with t("init_process_group"):
             dist.init_process_group(
                 "nccl",
@@ -537,28 +552,48 @@ class MultiGPUContext:
                 initialize_model_parallel,
             )
 
-            ulysses_degree, ring_degree = get_usp_config()
+            ulysses_degree, ring_degree, cfg_parallel = get_usp_config()
             init_distributed_environment(rank=cp_rank, world_size=cp_size)
-            if ulysses_degree is None and ring_degree is None:
-                print(f"No usp config, use default config: ulysses_degree={cp_size}, ring_degree=1")
-                initialize_model_parallel(
-                    sequence_parallel_degree=world_size,
-                    ring_degree=1,
-                    ulysses_degree=cp_size,
-                )
+            if not cfg_parallel:
+                if ulysses_degree is None and ring_degree is None:
+                    print(f"No usp config, use default config: ulysses_degree={cp_size}, ring_degree=1, CFG parallel false")
+                    initialize_model_parallel(
+                        sequence_parallel_degree=world_size,
+                        ring_degree=1,
+                        ulysses_degree=cp_size,
+                    )
+                else:
+                    if ulysses_degree is None:
+                        ulysses_degree = world_size // ring_degree
+                    if ring_degree is None:
+                        ring_degree = world_size // ulysses_degree
+                    print(f"Use usp config: ulysses_degree={ulysses_degree}, ring_degree={ring_degree}, CFG parallel false")
+                    initialize_model_parallel(
+                        sequence_parallel_degree=world_size,
+                        ring_degree=ring_degree,
+                        ulysses_degree=ulysses_degree,
+                    )
             else:
-                if ulysses_degree is None:
-                    ulysses_degree = world_size // ring_degree
-                if ring_degree is None:
-                    ring_degree = world_size // ulysses_degree
-                print(f"Use usp config: ulysses_degree={ulysses_degree}, ring_degree={ring_degree}")
-                initialize_model_parallel(
-                    sequence_parallel_degree=world_size,
-                    ring_degree=ring_degree,
-                    ulysses_degree=ulysses_degree,
-                )
-
-            print(f"initialized model parallel with sequence_parallel_degree={cp_size}, ring_degree=1, ulysses_degree={cp_size}")
+                if ulysses_degree is None and ring_degree is None:
+                    print(f"No usp config, use default config: ulysses_degree={cp_size // 2}, ring_degree=1, CFG parallel true")
+                    initialize_model_parallel(
+                        sequence_parallel_degree=world_size // 2,
+                        ring_degree=1,
+                        ulysses_degree=cp_size // 2,
+                        classifier_free_guidance_degree=2,
+                    )
+                else:
+                    if ulysses_degree is None:
+                        ulysses_degree = world_size // 2 // ring_degree
+                    if ring_degree is None:
+                        ring_degree = world_size // 2 // ulysses_degree
+                    print(f"Use usp config: ulysses_degree={ulysses_degree}, ring_degree={ring_degree}, CFG parallel true")
+                    initialize_model_parallel(
+                        sequence_parallel_degree=world_size // 2,
+                        ring_degree=ring_degree,
+                        ulysses_degree=ulysses_degree,
+                        classifier_free_guidance_degree=2,
+                    )
 
         self.tokenizer = t5_tokenizer()
         with t("load_text_encoder"):
@@ -590,6 +625,7 @@ class MochiMultiGPUPipeline:
         use_xdit,
         ulysses_degree,
         ring_degree,
+        cfg_parallel,
     ):
         ray.init()
         RemoteClass = ray.remote(MultiGPUContext)
@@ -609,6 +645,7 @@ class MochiMultiGPUPipeline:
                 use_xdit=use_xdit,
                 ulysses_degree=ulysses_degree,
                 ring_degree=ring_degree,
+                cfg_parallel=cfg_parallel,
             )
             for i in range(world_size)
         ]

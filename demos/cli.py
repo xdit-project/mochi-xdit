@@ -31,7 +31,7 @@ def configure_model(model_dir_path_, cpu_offload_, dtype_):
     dtype = dtype_
 
 def load_model(use_fsdp, t5_model_path, max_t5_token_length,
-        use_xdit, ulysses_degree, ring_degree):
+        use_xdit, ulysses_degree, ring_degree, cfg_parallel):
     global num_gpus, pipeline, model_dir_path
     if pipeline is None:
         MOCHI_DIR = model_dir_path
@@ -57,6 +57,7 @@ def load_model(use_fsdp, t5_model_path, max_t5_token_length,
             kwargs["use_xdit"] = use_xdit
             kwargs["ulysses_degree"] = ulysses_degree
             kwargs["ring_degree"] = ring_degree
+            kwargs["cfg_parallel"] = cfg_parallel
         else:
             kwargs["cpu_offload"] = cpu_offload
         kwargs["use_fsdp"] = use_fsdp
@@ -76,10 +77,10 @@ def generate_video(
     cfg_scale,
     num_inference_steps,
     use_fsdp, t5_model_path, max_t5_token_length,
-    use_xdit, ulysses_degree, ring_degree, 
+    use_xdit, ulysses_degree, ring_degree, cfg_parallel
 ):
     load_model(use_fsdp, t5_model_path, max_t5_token_length,
-        use_xdit, ulysses_degree, ring_degree)
+        use_xdit, ulysses_degree, ring_degree, cfg_parallel)
 
     # sigma_schedule should be a list of floats of length (num_inference_steps + 1),
     # such that sigma_schedule[0] == 1.0 and sigma_schedule[-1] == 0.0 and monotonically decreasing.
@@ -150,12 +151,15 @@ inviting atmosphere.
 @click.option("--use_xdit", is_flag=True, help="Whether to use xDiT")
 @click.option("--ulysses_degree", default=None, type=int, help="Ulysses degree")
 @click.option("--ring_degree", default=None, type=int, help="Ring degree")
+@click.option("--cfg_parallel", is_flag=True, help="CFG parallel")
 @click.option("--use_fsdp", is_flag=True, help="Whether to use FSDP")
 @click.option("--t5_model_path", default="/cfs/dit/t5-v1_1-xxl", type=str, help="the path of t5 model")
 @click.option("--max_t5_token_length", default=256, type=int, help="the max token length of t5")
 def generate_cli(
     prompt, negative_prompt, width, height, num_frames, seed, 
-    cfg_scale, num_steps, model_dir, cpu_offload, use_xdit, ulysses_degree, ring_degree, use_fsdp, t5_model_path, max_t5_token_length   
+    cfg_scale, num_steps, model_dir, cpu_offload, 
+    use_xdit, ulysses_degree, ring_degree, cfg_parallel, 
+    use_fsdp, t5_model_path, max_t5_token_length   
 ):
     configure_model(model_dir, cpu_offload, torch.bfloat16)
     output = generate_video(
@@ -168,7 +172,7 @@ def generate_cli(
         cfg_scale,
         num_steps,
         use_fsdp, t5_model_path, max_t5_token_length,
-        use_xdit, ulysses_degree, ring_degree, 
+        use_xdit, ulysses_degree, ring_degree, cfg_parallel
     )
     click.echo(f"Video generated at: {output}")
 
