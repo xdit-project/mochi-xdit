@@ -16,19 +16,13 @@ This repository provides an accelerated inference version of [Mochi 1](https://g
 
 <div align="center">
 
-| Feature | xdit version | original version|
-|:---:|:---:|:---:|
-| attention parallel | USP(Ulysses+Ring) | Ulysses |
-| VAE | input tiling | X |
-| model loading | Replicated | FSDP |
+| Feature            | xDiT Version      | Original Version |
+|-------------------|-------------------|------------------|
+| Attention Parallel | Ulysses+Ring+CFG | Ulysses         |
+| VAE               | Variable Size     | Fixed Size      |
+| Model Loading     | Replicated       | FSDP            |
 
 </div>
-
-| Feature | xdit | original |
-|:---:|:---:|:---:|
-| attention parallel | USP(Ulysses+Ring) | Ulysses |
-| VAE | input titling | X |
-| model loading | Replicated | FSDP |
 
 
 ## Usage
@@ -70,19 +64,7 @@ python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "pr
 ### 4. Performance
 
 <div align="center">
-
-| Configuration | Metric | 1x L40 (baseline) | 2x L40 ||| 6x L40 |||
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| | | | U2 | R2 | baseline2 | u2r3 | u6 | baseline6 |
-| **With FSDP** | Sampling (s) | 388.61 | 257.71 | 258.19 | 257.7 | 470.99 | 474.66 | 471.09 |
-| | Conditioning (s) | 0.5 | 0.92 | 1.0 | 0.88 | 1.22 | 1.42 | 1.18 |
-| | VAE Decoding (s) | 7.84 | 11.59 | 10.47 | 10.47 | 9.22 | 9.19 | 9.15 |
-| | Memory (GB) | 35.43 | 38.84 | 38.84 | 37.71 | 19.54 | 16.33 | 19.7 |
-| **Without FSDP** | Sampling (s) | 396.04 | 216.45 | 216.7 | 204.5 | 242.51 | 246.66 | 242.34 |
-| | Conditioning (s) | 0.37 | 0.94 | 0.96 | 1.47 | 1.25 | 1.2 | 1.21 |
-| | VAE Decoding (s) | 7.81 | 10.3 | 10.59 | 10.18 | 9.81 | 10.04 | 9.2 |
-| | Memory (GB) | 35.43 | 37.97 | 38.42 | 33.61 | 30 | 29.07 | 29.99 |
-
+TBD
 </div>
 
 ### References
