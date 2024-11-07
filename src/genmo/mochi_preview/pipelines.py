@@ -513,7 +513,7 @@ class MultiGPUContext:
         print(f"Initializing rank {local_rank+1}/{world_size}")
         assert world_size > 1, f"Multi-GPU mode requires world_size > 1, got {world_size}"
         os.environ["MASTER_ADDR"] = "127.0.0.1"
-        os.environ["MASTER_PORT"] = "29501"
+        os.environ["MASTER_PORT"] = "29500"
         with t("init_process_group"):
             dist.init_process_group(
                 "nccl",
