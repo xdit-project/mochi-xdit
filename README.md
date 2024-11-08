@@ -1,6 +1,6 @@
-# mochi-xdit: Parallel Inference for Mochi-preview Video Generation Model with xDiT
+# mochi-xdit: Faster Parallel Inference of Mochi-preview Video Generation Model with xDiT
 
-This repository provides an accelerated inference version of [Mochi 1](https://github.com/genmoai/models) using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
+This repository provides an accelerated way to delpoy the Video Generation Model [Mochi 1](https://github.com/genmoai/models) using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
 
 Mochi-1 originally ran on 4xH100(80GB) GPUs, however, we made it run on a single L40(48GB) GPU with no accuracy loss!
 
@@ -29,7 +29,7 @@ Moreover, by applying xDiT, we successfully reduced the latency of generating a 
         <video width="100%" autoplay loop muted playsinline>
             <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.gif" type="video/gif">
         </video>
-        <p style="text-align: center">6xL40 GPU (cfg_parallel=2, ring=3, 74.06 Sec, 30.94 GB)</p>
+        <p style="text-align: center">6xL40 GPU (cfg_parallel=2, ring_parallel=3, 74.06 Sec, 30.94 GB)</p>
     </div>
 </div>
 
