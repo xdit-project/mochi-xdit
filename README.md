@@ -2,9 +2,9 @@
 
 This repository provides an accelerated inference version of [Mochi 1](https://github.com/genmoai/models) using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
 
-Mochi-1 originally ran it on 4xH100 (100GB VRAM) GPUs, however, we made it run on a single 48GB L40 GPU with no accuracy loss!
+Mochi-1 originally ran on 4xH100(80GB) GPUs, however, we made it run on a single L40(48GB) GPU with no accuracy loss!
 
-xDiT successfully reduced the latency of generating a 49-frame 848x480 resolution video from 398 seconds (6 minutes 38 seconds) to 74 seconds (1 minute 14 seconds) on 6 L40 GPUs. 
+Moreover, by applying xDiT, we successfully reduced the latency of generating a 49-frame 848x480 resolution video from 398 seconds (6 minutes 38 seconds) to 74 seconds (1 minute 14 seconds) on 6xL40 GPUs. 
 
 <div style="display: flex; justify-content: space-between; gap: 10px;">
     <div style="width: 24%">
