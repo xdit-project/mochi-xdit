@@ -4,12 +4,43 @@ This repository provides an accelerated inference version of [Mochi 1](https://g
 
 Mochi-1 originally ran it on 4xH100 (100GB VRAM) GPUs, however, we made it run on a single 48GB L40 GPU with no accuracy loss!
 
+xDiT successfully reduced the latency of generating a 49-frame 848x480 resolution video from 398 seconds (6 minutes 38 seconds) to 74 seconds (1 minute 14 seconds) on 6 L40 GPUs. 
+
+<div style="display: flex; justify-content: space-between; gap: 10px;">
+    <div style="width: 24%">
+        <video width="100%" autoplay loop muted>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_1gpu.mp4" type="video/mp4">
+        </video>
+        <p style="text-align: center">1xL40 GPU (398.00 Sec, 30.83 GB)</p>
+    </div>
+    <div style="width: 24%">
+        <video width="100%" autoplay loop muted>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_2g_orignal.mp4" type="video/mp4">
+        </video>
+        <p style="text-align: center">2xL40 GPU (ulysses=2, 216.50 Sec, 35.05 GB)</p>
+    </div>
+    <div style="width: 24%">
+        <video width="100%" autoplay loop muted>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_cfg2.mp4" type="video/mp4">
+        </video>
+        <p style="text-align: center">2xL40 GPU (cfg_parallel=2, 199.07 Sec, 36.69 GB)</p>
+    </div>
+    <div style="width: 24%">
+        <video width="100%" autoplay loop muted>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.mp4" type="video/mp4">
+        </video>
+        <p style="text-align: center">6xL40 GPU (cfg_parallel=2, ring=3, 74.06 Sec, 30.94 GB)</p>
+    </div>
+</div>
+
+The prompt of the video is: *"Witness a grand space battle between starships, with lasers cutting through the darkness of space and explosions illuminating the void"*.
+
 ## HightLights
 
-1. Memory Optimization makes mochi is able to generate video on a single 48GB L40 GPU without no accuracy loss.
-2. Tiled VAE decoder enables the correct generation of video with any resolution.
-3. Unified Sequence Parallelism for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
-4. CFG parallel is first applied by us in Mochi-1.
+1. Memory optimization makes mochi is able to generate video on a single 48GB L40 GPU without no accuracy loss.
+2. Tiled VAE decoder enables the correct generation of video with any resolution, as well as reducing the memory footprint.
+3. Unified Sequence Parallelism ([USP](https://github.com/feifeibear/long-context-attention)) for AsymmetricAttention using xDiT: hybrid 2D sequence parallelism with Ring-Attention and DeepSpeed-Ulysses.
+4. CFG parallel from xDiT is applied by us in Mochi-1 in a simple way.
 
 ## Usage
 
@@ -18,10 +49,10 @@ This repository provides an accelerated inference version of [Mochi 1](https://g
 <div align="center">
 
 | Feature            | xDiT Version      | Original Version |
-|-------------------|-------------------|------------------|
+|:-----------------:|:-----------------:|:----------------:|
 | Attention Parallel | Ulysses+Ring+CFG | Ulysses         |
 | VAE               | Variable Size     | Fixed Size      |
-| Model Loading     | Replicated       | FSDP            |
+| Model Loading     | Replicated/FSDP   | FSDP            |
 
 </div>
 
