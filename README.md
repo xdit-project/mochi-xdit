@@ -8,26 +8,26 @@ Moreover, by applying xDiT, we successfully reduced the latency of generating a 
 
 <div style="display: flex; justify-content: space-between; gap: 10px;">
     <div style="width: 24%">
-        <video width="100%" autoplay loop muted>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_1gpu.mp4" type="video/mp4">
+        <video width="100%" autoplay loop muted playsinline>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_1gpu.gif" type="video/gif">
         </video>
         <p style="text-align: center">1xL40 GPU (398.00 Sec, 30.83 GB)</p>
     </div>
     <div style="width: 24%">
-        <video width="100%" autoplay loop muted>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_2g_orignal.mp4" type="video/mp4">
+        <video width="100%" autoplay loop muted playsinline>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_2g_orignal.gif" type="video/gif">
         </video>
         <p style="text-align: center">2xL40 GPU (ulysses=2, 216.50 Sec, 35.05 GB)</p>
     </div>
     <div style="width: 24%">
-        <video width="100%" autoplay loop muted>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_cfg2.mp4" type="video/mp4">
+        <video width="100%" autoplay loop muted playsinline>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_cfg2.gif" type="video/gif">
         </video>
         <p style="text-align: center">2xL40 GPU (cfg_parallel=2, 199.07 Sec, 36.69 GB)</p>
     </div>
     <div style="width: 24%">
-        <video width="100%" autoplay loop muted>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.mp4" type="video/mp4">
+        <video width="100%" autoplay loop muted playsinline>
+            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.gif" type="video/gif">
         </video>
         <p style="text-align: center">6xL40 GPU (cfg_parallel=2, ring=3, 74.06 Sec, 30.94 GB)</p>
     </div>
