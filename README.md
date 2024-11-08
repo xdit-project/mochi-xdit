@@ -11,7 +11,7 @@ Moreover, by applying xDiT, we successfully reduced the latency of generating a 
 
 | Metric | 1x L40 GPU | 2x L40 GPU <br>(uly=2)<br> | 2x L40 GPU <br>(cfg=2)<br> | 6x L40 GPU <br>(cfg=2, ring=3)<br> |
 |:------------:|:------------:|:------------:|:------------:|:------------:|
-| Performance | 398.00s | 216.50s | 199.07s | 74.06s |
+| Performance | 398.00s | 216.50s (1.8x) | 199.07s (2.0x) | 74.06s (5.4x) |
 | Memory | 30.83 GB | 35.05 GB | 36.69 GB | 30.94 GB |
 | Preview | ![1 GPU](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_1gpu.gif) | ![2 GPU Ulysses](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_2g_orignal.gif) | ![2 GPU CFG](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_cfg2.gif) | ![6 GPU](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.gif) |
 
