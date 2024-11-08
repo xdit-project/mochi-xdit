@@ -6,32 +6,17 @@ Mochi-1 originally ran on 4xH100(80GB) GPUs, however, we made it run on a single
 
 Moreover, by applying xDiT, we successfully reduced the latency of generating a 49-frame 848x480 resolution video from 398 seconds (6 minutes 38 seconds) to 74 seconds (1 minute 14 seconds) on 6xL40 GPUs. 
 
-<div style="display: flex; justify-content: space-between; gap: 10px;">
-    <div style="width: 24%">
-        <video width="100%" autoplay loop muted playsinline>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_1gpu.gif" type="video/gif">
-        </video>
-        <p style="text-align: center">1xL40 GPU (398.00 Sec, 30.83 GB)</p>
-    </div>
-    <div style="width: 24%">
-        <video width="100%" autoplay loop muted playsinline>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_2g_orignal.gif" type="video/gif">
-        </video>
-        <p style="text-align: center">2xL40 GPU (ulysses=2, 216.50 Sec, 35.05 GB)</p>
-    </div>
-    <div style="width: 24%">
-        <video width="100%" autoplay loop muted playsinline>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_cfg2.gif" type="video/gif">
-        </video>
-        <p style="text-align: center">2xL40 GPU (cfg_parallel=2, 199.07 Sec, 36.69 GB)</p>
-    </div>
-    <div style="width: 24%">
-        <video width="100%" autoplay loop muted playsinline>
-            <source src="https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.gif" type="video/gif">
-        </video>
-        <p style="text-align: center">6xL40 GPU (cfg_parallel=2, ring_parallel=3, 74.06 Sec, 30.94 GB)</p>
-    </div>
+
+<div align="center">
+
+| Metric | 1x L40 | 2x L40 <br>(ulysses=2)<br> | 2x L40 <br>(cfg=2)<br> | 6x L40<br>(cfg=2, ring=3)<br> |
+|:------------:|:------------:|:------------:|:------------:|:------------:|
+| Performance | 398.00s | 216.50s | 199.07s | 74.06s |
+| Memory | 30.83 GB | 35.05 GB | 36.69 GB | 30.94 GB |
+| Preview | ![1 GPU](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_1gpu.gif) | ![2 GPU Ulysses](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_2g_orignal.gif) | ![2 GPU CFG](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_cfg2.gif) | ![6 GPU](https://raw.githubusercontent.com/xdit-project/xdit_assets/main/mochi-xdit/space_r3cfg2.gif) |
+
 </div>
+
 
 The prompt of the video is: *"Witness a grand space battle between starships, with lasers cutting through the darkness of space and explosions illuminating the void"*.
 
