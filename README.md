@@ -52,21 +52,28 @@ CUDA_VISIBLE_DEVICES=0 python3 ./demos/cli.py --model_dir "<path_to_downloaded_d
 
 Running mochi with multiple GPUs using Unified Sequence Parallelism provided by [xDiT](https://github.com/xdit-project/xDiT).
 
-Use the number of GPUs in CUDA_VISIBLE_DEVICES to control world_size.
+world_size is the total number of GPU used for video generation. Use the number of GPUs in CUDA_VISIBLE_DEVICES to control world_size.
 
-Adjust the configuration of ulysses_degree and ring_degree to achieve optimal performance. ulysses_degree x ring_degree = world_size.
+Adjust the configuration of ulysses_degree, ring_degree, and CFG parallel degree to achieve optimal performance. If cfg_parallel is enabled, ulysses_degree x ring_degree = world_size. Otherwise, ulysses_degree x ring_degree x 2 = world_size.
+
+E.g.,
 
 ```shell
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "prompt" \
  --use_xdit --ulysses_degree 2 --ring_degree 2
 ```
+or
+
+```shell
+export CUDA_VISIBLE_DEVICES=0,1,2,4,5,6
+python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "prompt" \
+ --use_xdit --ulysses_degree 3 --ring_degree 1 --cfg_parallel
+```
 
 ### 4. Performance
 
-<div align="center">
-TBD
-</div>
+![L40 performance](./assets/l40_performance.png)
 
 ### References
 

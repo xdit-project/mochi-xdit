@@ -85,7 +85,7 @@ class AsymmetricAttention(nn.Module):
         self.proj_y = nn.Linear(dim_x, dim_y, bias=out_bias, device=device) if update_y else nn.Identity()
         self.use_xdit = is_use_xdit()
 
-        if self.use_xdit and cp.is_cp_active() and get_sequence_parallel_world_size() > 1:
+        if self.use_xdit:
             from xfuser.core.long_ctx_attention import xFuserLongContextAttention
 
             self.xdit_attn_layer = xFuserLongContextAttention(
@@ -384,7 +384,7 @@ class AsymmetricAttention(nn.Module):
         **rope_rotation,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # gpu=1 can not use xdit, since distributed environment is not set up.
-        if self.use_xdit and cp.is_cp_active() and get_sequence_parallel_world_size() > 1:
+        if self.use_xdit:
             return self._forward_xdit(
                 x=x,
                 y=y,
