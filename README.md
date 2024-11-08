@@ -9,7 +9,7 @@ Moreover, by applying xDiT, we successfully reduced the latency of generating a 
 
 <div align="center">
 
-| Metric | 1x L40 GPU | 2x L40 GPU <br>(ulysses=2)<br> | 2x L40 GPU <br>(cfg=2)<br> | 6x L40 GPU <br>(cfg=2, ring=3)<br> |
+| Metric | 1x L40 GPU | 2x L40 GPU <br>(uly=2)<br> | 2x L40 GPU <br>(cfg=2)<br> | 6x L40 GPU <br>(cfg=2, ring=3)<br> |
 |:------------:|:------------:|:------------:|:------------:|:------------:|
 | Performance | 398.00s | 216.50s | 199.07s | 74.06s |
 | Memory | 30.83 GB | 35.05 GB | 36.69 GB | 30.94 GB |
