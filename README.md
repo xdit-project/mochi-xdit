@@ -92,7 +92,13 @@ python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "pr
 
 ### 4. Performance
 
+The comparison in latency betweem mochi-xDiT and the original mochi inference (Baseline) is shown as follows.
+
 ![L40 performance](./assets/l40_performance.png)
+
+We also try flash_attn 3 with FP8 support on Hopper GPUs. The latency of mochi-xDiT with flash_attn 2 and flash_attn 3 are compared in the following figure.
+
+![H20 performance](./assets/h20_performance.png)
 
 ### References
 
