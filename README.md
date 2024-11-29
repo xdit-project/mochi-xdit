@@ -105,28 +105,36 @@ We also try flash_attn 3 with FP8 support on Hopper GPUs. The latency of mochi-x
 [xDiT: an Inference Engine for Diffusion Transformers (DiTs) with Massive Parallelism](https://arxiv.org/abs/2411.01738)
 
 ```
-@misc{fang2024xditinferenceenginediffusion,
-      title={xDiT: an Inference Engine for Diffusion Transformers (DiTs) with Massive Parallelism}, 
-      author={Jiarui Fang and Jinzhe Pan and Xibo Sun and Aoyu Li and Jiannan Wang},
-      year={2024},
-      eprint={2411.01738},
-      archivePrefix={arXiv},
-      primaryClass={cs.DC},
-      url={https://arxiv.org/abs/2411.01738}, 
+@article{fang2024xdit,
+  title={xDiT: an Inference Engine for Diffusion Transformers (DiTs) with Massive Parallelism},
+  author={Fang, Jiarui and Pan, Jinzhe and Sun, Xibo and Li, Aoyu and Wang, Jiannan},
+  journal={arXiv preprint arXiv:2411.01738},
+  year={2024}
 }
+
 ```
 
 [USP: A Unified Sequence Parallelism Approach for Long Context Generative AI](https://arxiv.org/abs/2405.07719)
 
 ```
-@misc{fang2024uspunifiedsequenceparallelism,
-      title={USP: A Unified Sequence Parallelism Approach for Long Context Generative AI}, 
-      author={Jiarui Fang and Shangchun Zhao},
-      year={2024},
-      eprint={2405.07719},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2405.07719}, 
+@article{fang2024unified,
+  title={A Unified Sequence Parallelism Approach for Long Context Generative AI},
+  author={Fang, Jiarui and Zhao, Shangchun},
+  journal={arXiv preprint arXiv:2405.07719},
+  year={2024}
 }
+
+```
+
+[Unveiling Redundancy in Diffusion Transformers (DiTs): A Systematic Study](https://arxiv.org/abs/2411.13588)
+
+```
+@article{sun2024unveiling,
+  title={Unveiling Redundancy in Diffusion Transformers (DiTs): A Systematic Study},
+  author={Sun, Xibo and Fang, Jiarui and Li, Aoyu and Pan, Jinzhe},
+  journal={arXiv preprint arXiv:2411.13588},
+  year={2024}
+}
+
 ```
 
