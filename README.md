@@ -78,9 +78,9 @@ Adjust the configuration of ulysses_degree, ring_degree, and CFG parallel degree
 E.g.,
 
 ```shell
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 python3 ./demos/cli.py --model_dir "<path_to_downloaded_directory>" --prompt "prompt" \
- --use_xdit --ulysses_degree 2 --ring_degree 2
+ --use_xdit --ulysses_degree 3 --ring_degree 2
 ```
 or
 
